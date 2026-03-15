@@ -32,6 +32,29 @@ The MVP does not include:
 
 The CLI should use `ts-morph` as the main abstraction layer and rely on `typescript` as the authoritative compiler and diagnostics engine.
 
+## Local developer installation
+The MVP must be easy to iterate on locally with AI models and shell workflows.
+
+That means the CLI must be installable in a way that makes the `agentscript` command available on the user's `PATH`.
+
+### Requirement
+The project must provide a single local developer command that:
+
+- recompiles the CLI
+- refreshes the linked executable
+- leaves `agentscript` immediately runnable from any shell on the machine
+
+In other words, after running one rebuild command, the developer should be able to invoke:
+
+```sh
+agentscript ...
+```
+
+without manually copying binaries, editing shell config, or re-linking by hand.
+
+### Intent
+This is an explicit MVP requirement because the fastest feedback loop is to let a human or AI model modify the CLI, run one command, and immediately call the updated executable from the terminal.
+
 ## Project shape
 The CLI is invoked from the project root.
 
@@ -356,6 +379,11 @@ Writing a full graph snapshot after `graph` is optional and not required in v1.
 - Node.js path utilities for project-relative resolution
 - a simple hash function implementation for `cwdHash` and `graphHash`
 
+### Packaging requirement
+The CLI package must expose an executable entry so it can be linked onto `PATH` for local development.
+
+The exact implementation can vary, but the MVP should be designed around a one-command rebuild-and-link workflow, such as a package script that performs build output refresh plus local linking.
+
 ### Internal data structures
 The MVP can use:
 
@@ -439,6 +467,7 @@ The MVP is complete when:
 - `write` reads from stdin and revalidates the project
 - every command writes one JSONL audit event
 - mutating commands write full graph snapshots under `~/.agentscript`
+- one local developer command rebuilds the CLI and leaves `agentscript` immediately available on `PATH`
 
 ## Bottom line
 The MVP is a strict TypeScript CLI built on `ts-morph` and `typescript`, with:
