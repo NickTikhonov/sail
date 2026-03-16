@@ -1,0 +1,24 @@
+{
+  "name": "agentscript",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lean TypeScript graph CLI MVP",
+  "bin": {
+    "agentscript": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "dev:link": "pnpm run build && pnpm link --global"
+  },
+  "dependencies": {
+    "commander": "^14.0.1",
+    "diff": "^8.0.2",
+    "ts-morph": "^25.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}

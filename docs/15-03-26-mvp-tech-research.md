@@ -75,6 +75,7 @@ The in-memory model can be as small as:
 That is enough to support:
 
 - `read <id> --depth n --revdepth n`
+- `graph --depth n`
 - `graph <id> --depth n`
 - `graph <id> --reverse`
 - graph summaries for logging

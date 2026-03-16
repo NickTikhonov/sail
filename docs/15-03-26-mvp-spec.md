@@ -284,10 +284,12 @@ Prints graph structure for a node.
 
 ### Usage
 ```sh
-agentscript graph <id> [--depth <n>] [--reverse]
+agentscript graph [id] [--depth <n>] [--reverse]
 ```
 
 ### Semantics
+- with no `id`, prints the full project graph
+- with an `id`, traverses the graph starting from that node
 - by default, traverses outgoing dependency edges
 - `--depth` bounds traversal depth
 - `--reverse` traverses reverse edges instead of outgoing edges

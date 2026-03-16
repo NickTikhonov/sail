@@ -218,16 +218,19 @@ Returns structural graph information for a node.
 
 ### Usage
 ```sh
-agentscript graph <id> [--depth <n>] [--reverse]
+agentscript graph [id] [--depth <n>] [--reverse]
 ```
 
 ### Behavior
+- with no `id`, returns the full project graph
+- with an `id`, returns graph structure starting from that node
 - returns direct imports by default
 - expands dependency traversal with `--depth`
 - returns callers instead when `--reverse` is supplied
 
 ### Example
 ```sh
+agentscript graph
 agentscript graph getUser --depth 2
 agentscript graph getUser --reverse
 ```
@@ -376,7 +379,7 @@ The minimum viable interface is:
 agentscript read <id> [--depth <n>] [--revdepth <n>]
 agentscript write <id>
 agentscript query <term> [--exact]
-agentscript graph <id> [--depth <n>] [--reverse]
+agentscript graph [id] [--depth <n>] [--reverse]
 ```
 
 And the minimum viable source model is:
