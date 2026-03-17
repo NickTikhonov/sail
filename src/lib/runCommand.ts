@@ -125,15 +125,26 @@ function renderGraph(
   depth: number,
   reverse: boolean
 ): string {
+  const expanded = new Set<string>();
+  const getNextIds = (id: string): string[] => {
+    const node = getNodeOrThrow(projectState, id);
+    return reverse ? node.importedBy : node.imports;
+  };
+
   const visit = (id: string, currentDepth: number, active: Set<string>): string[] => {
     const prefix = "  ".repeat(currentDepth);
-    const line = `${prefix}${id}`;
-    if (currentDepth >= depth) {
+    const alreadyExpanded = expanded.has(id);
+    const nextIds = getNextIds(id);
+    const shouldCollapse = alreadyExpanded && currentDepth < depth && nextIds.length > 0;
+    const line = `${prefix}${id}${shouldCollapse ? "..." : ""}`;
+    if (alreadyExpanded) {
       return [line];
     }
 
-    const node = getNodeOrThrow(projectState, id);
-    const nextIds = reverse ? node.importedBy : node.imports;
+    expanded.add(id);
+    if (currentDepth >= depth) {
+      return [line];
+    }
     if (nextIds.length === 0) {
       return [line];
     }
@@ -170,17 +181,27 @@ function renderFullGraph(projectState: ProjectState, depth: number, reverse: boo
 
   const collectIds = (startId: string): string[] => {
     const lines: string[] = [];
+    const expanded = new Set<string>();
+    const getNextIds = (id: string): string[] => {
+      const node = getNodeOrThrow(projectState, id);
+      return reverse ? node.importedBy : node.imports;
+    };
 
     const visit = (id: string, currentDepth: number, active: Set<string>): void => {
       const prefix = "  ".repeat(currentDepth);
-      lines.push(`${prefix}${id}`);
+      const alreadyExpanded = expanded.has(id);
+      const nextIds = getNextIds(id);
+      const shouldCollapse = alreadyExpanded && currentDepth < depth && nextIds.length > 0;
+      lines.push(`${prefix}${id}${shouldCollapse ? "..." : ""}`);
+      if (alreadyExpanded) {
+        return;
+      }
+
+      expanded.add(id);
 
       if (currentDepth >= depth) {
         return;
       }
-
-      const node = getNodeOrThrow(projectState, id);
-      const nextIds = reverse ? node.importedBy : node.imports;
       for (const nextId of nextIds) {
         if (active.has(nextId)) {
           lines.push(`${"  ".repeat(currentDepth + 1)}${nextId} (cycle)`);
