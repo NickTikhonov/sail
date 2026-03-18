@@ -1,0 +1,89 @@
+sail
+
+Are you a human? Sail is meant to be used by your agent. You should not really need
+to read this yourself. Just run `sail init` in your React project, then have Claude
+or Codex use Sail automatically.
+
+FOR AGENTS
+
+Use `sail` to work on the code under the graph source root from `sail.config.json`
+(`graphSrc`). Do not manually edit files there.
+
+MENTAL MODEL
+
+- Each node is one file and one public export.
+- Node ids are extensionless. Think `Button`, not `Button.tsx`.
+- `sail write <id>` creates or replaces `<graphSrc>/<id>.ts` or `<graphSrc>/<id>.tsx`.
+- `sail test write <id>` creates or replaces `<graphSrc>/<id>.spec.ts` or
+  `<graphSrc>/<id>.spec.tsx`.
+- `index.ts` is special:
+  - In a standalone sail project, it is the async `main()` entrypoint.
+  - In an embedded app, e.g. inside a Next.js app, it is the public surface that
+    outside code should import from.
+
+RECOMMENDED LOOP
+
+1. Run `sail query <term>` to find the node you want.
+2. Run `sail graph <id>` to understand dependencies.
+3. Run `sail read <id>` before changing an existing node.
+4. Run `sail write <id>` for full-file replacement.
+5. Run `sail patch <id>` for a surgical edit.
+6. Run `sail test write <id>` or `sail test patch <id>` to add or update tests.
+7. In embedded apps, e.g. when sail lives inside a Next.js app, update
+   `<graphSrc>/index.ts` to expose anything the outside app should consume.
+
+WRITING RULES
+
+- Pass a full valid file to `write`, not a fragment.
+- `.ts` vs `.tsx` is inferred automatically for new files. Existing files keep their
+  current extension.
+- Local imports inside the graph must be static relative imports.
+- Top-level directive prologues like `"use client"` are allowed.
+- Other top-level executable statements are not allowed, except in standalone
+  `index.ts`, which may invoke `main()` inside a local `try/catch`.
+- The filename and exported symbol must match.
+- Keep one public node per file.
+
+EMBEDDED APP RULES
+
+- Outside the sail graph, import only from `<graphSrc>/index.ts`.
+- Do not import internal sail nodes directly from app code.
+- In Next.js projects, treat `app/**` as an adapter shell:
+  - business logic belongs in sail nodes
+  - `app/**` should be thin wrappers
+  - once possible, those files should become pure re-export stubs from the sail
+    public surface
+- Typical pattern:
+  - write `Button` and `useBillingService` as sail nodes
+  - export them from `sail/index.ts`
+  - let `app/page.tsx` import from `../sail` or re-export from it
+
+DEBT THAT CAN BLOCK LATER WRITES
+
+- Test debt: a function node was written without enough tests.
+- Import-boundary debt: outside code imports sail internals directly instead of using
+  `index.ts`.
+- Next adapter debt: `app/**` contains local app logic instead of acting as a thin
+  shell around sail.
+
+If sail says debt is open, pay it back before the next implementation write. `index`
+stays writable so you can fix the public surface.
+
+COMMANDS
+
+- `sail query <term>`: find node ids
+- `sail graph [id]`: show the whole graph or the neighborhood around one node
+- `sail read <id>`: read a node
+- `sail write <id>`: replace a node with full contents
+- `sail patch <id>`: exact replace or unified diff patch
+- `sail test read|write|patch <id>`: work on tests for one node
+- `sail init`: bootstrap sail in the current project
+- `sail ui`: browse command logs under `~/.sail`
+
+COMMON GOTCHAS
+
+- If you need outside code to use a sail node, export it from `index.ts` first.
+- If a React node needs `"use client"`, put that directive at the top of the sail
+  node file.
+- If a write is blocked, read the debt message carefully. It usually tells you the
+  next command to run.

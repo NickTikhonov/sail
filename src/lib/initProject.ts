@@ -4,16 +4,16 @@ import { ts } from "ts-morph";
 import SailError from "./SailError.js";
 
 function createProjectHelpTemplate(graphSrc: string): string {
-  return `# sail
+  return `sail project preamble
 
 This project is meant to be worked on through sail, not by manually editing files under the configured graph source directory.
 
-- Use \`sail help\` first.
-- Prefer \`query\`, \`graph\`, and \`read\` before \`write\`.
-- Use \`write\` with a full valid file, not a fragment.
-- Use \`sail test write <id>\` and \`sail test patch <id>\` for node tests.
-- The graph source root for this project is \`${graphSrc}\`, defined in \`sail.config.json\`.
-- If a function write opens test debt, pay it back before the next implementation write.
+Use \`sail help\` first.
+Prefer \`query\`, \`graph\`, and \`read\` before \`write\`.
+Use \`write\` with a full valid file, not a fragment.
+Use \`sail test write <id>\` and \`sail test patch <id>\` for node tests.
+The graph source root for this project is \`${graphSrc}\`, defined in \`sail.config.json\`.
+If a function write opens test debt, pay it back before the next implementation write.
 `;
 }
 
@@ -247,7 +247,7 @@ export default async function initProject(
   const graphSrcDir = path.join(target.targetRoot, defaultGraphSrc);
   const configPath = path.join(target.targetRoot, "sail.config.json");
   const indexPath = path.join(graphSrcDir, "index.ts");
-  const docsHelpPath = path.join(target.targetRoot, "docs", "sail-help.md");
+  const docsHelpPath = path.join(target.targetRoot, "docs", "sail-help-preamble.txt");
   const claudePath = path.join(target.targetRoot, "CLAUDE.md");
   const claudeSettingsPath = path.join(target.targetRoot, ".claude", "settings.local.json");
   const canMergeClaude = !target.createdDirectory && (await pathExists(claudePath));
@@ -310,7 +310,7 @@ export default async function initProject(
         : `${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"} (${tsconfigStatus})`
     }`,
     `- ${path.relative(target.targetRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
-    `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help.md"}`,
+    `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help-preamble.txt"}`,
     `- ${path.relative(target.targetRoot, claudePath) || "CLAUDE.md"}`,
     `- ${path.relative(target.targetRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
   ];
