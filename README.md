@@ -20,6 +20,7 @@ Sail blocks your agent when it breaks conventions. Tech debt must be paid immedi
 React apps, Next.js apps, and other browser-based projects.
 
 ```sh
+npm install -g sail
 npx create-react-app my-app
 cd my-app
 sail init
