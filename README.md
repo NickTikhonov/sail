@@ -39,6 +39,14 @@ Instead of exposing a free-for-all filesystem, `sail` gives the agent a tighter 
 - 🧪 Forces your agents to write an appropriate number of tests for every file right after making writes or edits, instead of leaving the test suite as "future work."
 - 🧱 Keeps your public boundaries clean, so agents do not slowly turn your app into a bowl of spaghetti.
 
+Sail guides your agent towards writing quality code by default:
+
+<img width="840" height="537" alt="Screenshot 2026-03-18 at 15 32 24" src="https://github.com/user-attachments/assets/760007d5-4091-4437-902b-34ab2afc88cd" />
+
+Sail blocks your agent when it breaks conventions. Tech debt must be paid immediately!
+
+<img width="844" height="618" alt="Screenshot 2026-03-18 at 15 27 11" src="https://github.com/user-attachments/assets/3cd95dbd-5733-46a8-b2a2-ad92d5c5aa55" />
+
 ## How Sail Works ⚙️
 
 `sail` organizes a TypeScript project as a graph of named nodes. Agents explore that graph through commands like `query`, `read`, and `graph`, then make changes through `write`, `patch`, and test commands instead of editing files directly. Every mutation is checked by the tool, so structure, validation, and test expectations are enforced as the project evolves.
