@@ -1,4 +1,4 @@
-# sail
+# sail ⛵️
 
 `sail` is an IDE built for agents, not humans.
 
