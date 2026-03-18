@@ -44,3 +44,21 @@ test("init defaults graphSrc to sail when src does not exist", async (t) => {
   assert.equal(packageJson.scripts.dev, "tsx sail/index.ts");
   assert.deepEqual(tsconfig.include, ["sail/**/*.ts"]);
 });
+
+test("init with a project name creates and initializes that directory", async (t) => {
+  const { homeDir, projectRoot } = await createTempProject(t);
+
+  const result = await runCli(projectRoot, ["init", "my-app"], { homeDir });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /initialized project in my-app:/);
+
+  const childRoot = path.join(projectRoot, "my-app");
+  const config = await readJson(path.join(childRoot, "sail.config.json"));
+  const packageJson = await readJson(path.join(childRoot, "package.json"));
+  const tsconfig = await readJson(path.join(childRoot, "tsconfig.json"));
+
+  assert.equal(config.graphSrc, "sail");
+  await fs.access(path.join(childRoot, "sail", "index.ts"));
+  assert.equal(packageJson.scripts.dev, "tsx sail/index.ts");
+  assert.deepEqual(tsconfig.include, ["sail/**/*.ts"]);
+});

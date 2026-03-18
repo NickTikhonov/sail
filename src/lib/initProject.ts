@@ -118,17 +118,58 @@ async function writeFile(targetPath: string, contents: string): Promise<void> {
   await fs.writeFile(targetPath, contents, "utf8");
 }
 
-export default async function initProject(projectRoot: string, force: boolean): Promise<string> {
-  const srcDir = path.join(projectRoot, "src");
+function resolveInitTarget(projectRoot: string, projectName?: string): { createdDirectory: boolean; targetRoot: string } {
+  if (!projectName) {
+    return {
+      createdDirectory: false,
+      targetRoot: projectRoot
+    };
+  }
+
+  const normalized = path.normalize(projectName);
+  if (!normalized || normalized === "." || path.isAbsolute(normalized)) {
+    throw new SailError(
+      `Invalid project name for \`sail init\`.\n` +
+        `What to do: pass a relative directory name like \`my-app\`.`
+    );
+  }
+
+  const targetRoot = path.resolve(projectRoot, normalized);
+  const relativeToCwd = path.relative(projectRoot, targetRoot);
+  if (
+    !relativeToCwd ||
+    relativeToCwd === "." ||
+    relativeToCwd.startsWith("..") ||
+    path.isAbsolute(relativeToCwd)
+  ) {
+    throw new SailError(
+      `Invalid project name for \`sail init\`.\n` +
+        `What to do: pass a relative directory name inside the current working directory, like \`my-app\`.`
+    );
+  }
+
+  return {
+    createdDirectory: true,
+    targetRoot
+  };
+}
+
+export default async function initProject(
+  projectRoot: string,
+  force: boolean,
+  projectName?: string
+): Promise<{ projectRoot: string; stdout: string }> {
+  const target = resolveInitTarget(projectRoot, projectName);
+  const srcDir = path.join(target.targetRoot, "src");
   const defaultGraphSrc = ((await pathExists(srcDir)) ? path.join("src", "sail") : "sail").replaceAll("\\", "/");
-  const graphSrcDir = path.join(projectRoot, defaultGraphSrc);
-  const configPath = path.join(projectRoot, "sail.config.json");
+  const graphSrcDir = path.join(target.targetRoot, defaultGraphSrc);
+  const configPath = path.join(target.targetRoot, "sail.config.json");
   const indexPath = path.join(graphSrcDir, "index.ts");
-  const packageJsonPath = path.join(projectRoot, "package.json");
-  const tsconfigPath = path.join(projectRoot, "tsconfig.json");
-  const docsHelpPath = path.join(projectRoot, "docs", "sail-help.md");
-  const claudePath = path.join(projectRoot, "CLAUDE.md");
-  const claudeSettingsPath = path.join(projectRoot, ".claude", "settings.local.json");
+  const packageJsonPath = path.join(target.targetRoot, "package.json");
+  const tsconfigPath = path.join(target.targetRoot, "tsconfig.json");
+  const docsHelpPath = path.join(target.targetRoot, "docs", "sail-help.md");
+  const claudePath = path.join(target.targetRoot, "CLAUDE.md");
+  const claudeSettingsPath = path.join(target.targetRoot, ".claude", "settings.local.json");
   const targetPaths = [
     configPath,
     packageJsonPath,
@@ -149,30 +190,37 @@ export default async function initProject(projectRoot: string, force: boolean): 
     if (existingPaths.length > 0) {
       throw new SailError(
         `Refusing to overwrite existing bootstrap files: ${existingPaths
-          .map((targetPath) => path.relative(projectRoot, targetPath))
+          .map((targetPath) => path.relative(target.targetRoot, targetPath))
           .join(", ")}.\n` +
-          `What to do: re-run \`sail init --force\` only if you want to replace the bootstrap files.`
+          `What to do: re-run \`sail init${projectName ? ` ${projectName}` : ""} --force\` only if you want to replace the bootstrap files.`
       );
     }
   }
 
   await fs.mkdir(graphSrcDir, { recursive: true });
   await writeFile(configPath, createSailConfig(defaultGraphSrc));
-  await writeFile(packageJsonPath, createPackageJson(projectRoot, defaultGraphSrc));
+  await writeFile(packageJsonPath, createPackageJson(target.targetRoot, defaultGraphSrc));
   await writeFile(tsconfigPath, createTsconfig(defaultGraphSrc));
   await writeFile(indexPath, INDEX_TEMPLATE);
   await writeFile(docsHelpPath, createProjectHelpTemplate(defaultGraphSrc));
   await writeFile(claudePath, createClaudeTemplate(defaultGraphSrc));
   await writeFile(claudeSettingsPath, CLAUDE_SETTINGS_TEMPLATE);
 
-  return [
-    "initialized project files:",
-    `- ${path.relative(projectRoot, configPath) || "sail.config.json"}`,
-    `- ${path.relative(projectRoot, packageJsonPath) || "package.json"}`,
-    `- ${path.relative(projectRoot, tsconfigPath) || "tsconfig.json"}`,
-    `- ${path.relative(projectRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
-    `- ${path.relative(projectRoot, docsHelpPath) || "docs/sail-help.md"}`,
-    `- ${path.relative(projectRoot, claudePath) || "CLAUDE.md"}`,
-    `- ${path.relative(projectRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
-  ].join("\n");
+  const header = target.createdDirectory
+    ? `initialized project in ${path.relative(projectRoot, target.targetRoot)}:`
+    : "initialized project files:";
+
+  return {
+    projectRoot: target.targetRoot,
+    stdout: [
+      header,
+      `- ${path.relative(target.targetRoot, configPath) || "sail.config.json"}`,
+      `- ${path.relative(target.targetRoot, packageJsonPath) || "package.json"}`,
+      `- ${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"}`,
+      `- ${path.relative(target.targetRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
+      `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help.md"}`,
+      `- ${path.relative(target.targetRoot, claudePath) || "CLAUDE.md"}`,
+      `- ${path.relative(target.targetRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
+    ].join("\n")
+  };
 }

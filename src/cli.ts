@@ -98,10 +98,11 @@ program
   .command("init")
   .summary("Bootstrap a new sail project")
   .description("Create the minimal files needed for a fresh sail TypeScript project.")
+  .argument("[projectName]")
   .option("--force", "Overwrite existing bootstrap files if they already exist", false)
-  .action(async (options: { force: boolean }) => {
+  .action(async (projectName: string | undefined, options: { force: boolean }) => {
     await executeWithLogging({
-      argv: [],
+      argv: projectName ? [projectName] : [],
       command: "init",
       expectsStdin: false,
       flags: options,
@@ -109,6 +110,7 @@ program
         runCommand({
           command: "init",
           force: options.force,
+          projectName,
           projectRoot: process.cwd()
         })
     });

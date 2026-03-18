@@ -19,6 +19,7 @@ type CommandInput =
       command: "init";
       force: boolean;
       projectRoot: string;
+      projectName?: string;
     }
   | {
       command: "graph";
@@ -618,14 +619,14 @@ async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Pro
 }
 
 async function runInit(input: Extract<CommandInput, { command: "init" }>): Promise<CommandResult> {
-  const stdout = await initProject(input.projectRoot, input.force);
-  const projectState = await buildProjectState(input.projectRoot, { validateTypes: true });
+  const initialized = await initProject(input.projectRoot, input.force, input.projectName);
+  const projectState = await buildProjectState(initialized.projectRoot, { validateTypes: true });
 
   return {
     projectState,
     shouldWriteSnapshot: true,
     stderr: "",
-    stdout,
+    stdout: initialized.stdout,
     touchedNodes: ["index"]
   };
 }

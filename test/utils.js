@@ -80,7 +80,11 @@ async function getGraphRoot(projectRoot) {
 
 async function initProject(testContext, options = {}) {
   const context = await createTempProject(testContext, options);
-  const initResult = await runCli(context.projectRoot, ["init"], { homeDir: context.homeDir });
+  const initArgs = ["init"];
+  if (options.projectName) {
+    initArgs.push(options.projectName);
+  }
+  const initResult = await runCli(context.projectRoot, initArgs, { homeDir: context.homeDir });
   return {
     ...context,
     initResult
