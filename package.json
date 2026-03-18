@@ -1,15 +1,29 @@
 {
   "name": "sail",
   "version": "0.1.0",
-  "private": true,
-  "description": "sail graph CLI MVP",
+  "private": false,
+  "description": "Agent-first TypeScript IDE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NickTikhonov/sail.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NickTikhonov/sail/issues"
+  },
+  "homepage": "https://github.com/NickTikhonov/sail#readme",
   "bin": {
     "sail": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "docs/sail-help-preamble.txt"
+  ],
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
     "dev:link": "pnpm run build && pnpm link --global",
+    "prepack": "pnpm run build",
     "test": "pnpm build && node --test ./test/*.test.js"
   },
   "dependencies": {
