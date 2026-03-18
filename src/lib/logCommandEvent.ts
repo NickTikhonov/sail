@@ -13,6 +13,16 @@ type LogEventInput = {
   exitCode: number;
   flags: Record<string, unknown>;
   projectState: ProjectState;
+  quality?: {
+    complexity?: number;
+    failedTests?: number;
+    nodeId?: string;
+    passedTests?: number;
+    recommendedTests?: number;
+    specStatus?: "failed" | "missing" | "passed" | "unavailable";
+    testsFound?: number;
+    totalTests?: number;
+  };
   stderr: string;
   stdin: string | null;
   stdout: string;
@@ -87,6 +97,7 @@ export default async function logCommandEvent(input: LogEventInput): Promise<voi
       nodeCount: input.projectState.graphSummary.nodeCount,
       touchedNodes: input.touchedNodes
     },
+    quality: input.quality,
     stderr: input.stderr,
     stdin: input.stdin,
     stdout: input.stdout,

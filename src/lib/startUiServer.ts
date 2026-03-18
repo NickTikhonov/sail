@@ -154,7 +154,10 @@ function renderHtml(): string {
         min-height: calc(100vh - 69px);
       }
       section {
+        display: flex;
+        flex-direction: column;
         border-right: 1px solid #1f2937;
+        min-height: 0;
         min-width: 0;
       }
       section:last-child {
@@ -169,8 +172,9 @@ function renderHtml(): string {
         border-bottom: 1px solid #1f2937;
       }
       .list {
+        flex: 1;
         overflow: auto;
-        max-height: calc(100vh - 117px);
+        min-height: 0;
       }
       .item {
         padding: 12px 16px;
@@ -211,8 +215,9 @@ function renderHtml(): string {
       }
       .detail {
         padding: 16px;
+        flex: 1;
         overflow: auto;
-        max-height: calc(100vh - 117px);
+        min-height: 0;
       }
       pre {
         white-space: pre-wrap;
@@ -245,6 +250,112 @@ function renderHtml(): string {
         font-size: 13px;
         color: #9ca3af;
       }
+      .growth-panel {
+        padding: 16px;
+        border-bottom: 1px solid #1f2937;
+        background: #0f172a;
+      }
+      .growth-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .growth-card {
+        padding: 10px 12px;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        background: #111827;
+      }
+      .growth-card strong,
+      .growth-selection strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        color: #9ca3af;
+      }
+      .growth-card span {
+        display: block;
+        font-size: 18px;
+        font-weight: 600;
+        color: #f9fafb;
+      }
+      .growth-selection small {
+        display: block;
+        margin-top: 4px;
+        color: #9ca3af;
+        font-size: 12px;
+      }
+      .growth-legend {
+        display: flex;
+        gap: 16px;
+        margin-top: 10px;
+        color: #cbd5e1;
+        font-size: 12px;
+      }
+      .growth-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .growth-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+      }
+      .growth-selection {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        background: #111827;
+        font-size: 13px;
+      }
+      .growth-axis {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        color: #9ca3af;
+        font-size: 12px;
+      }
+      .growth-chart {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .growth-grid {
+        stroke: #1f2937;
+        stroke-width: 1;
+      }
+      .growth-line-nodes {
+        fill: none;
+        stroke: #60a5fa;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .growth-line-edges {
+        fill: none;
+        stroke: #34d399;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .growth-active-line {
+        stroke: #f59e0b;
+        stroke-width: 1.5;
+        stroke-dasharray: 4 4;
+      }
+      .growth-active-node {
+        fill: #60a5fa;
+        stroke: #dbeafe;
+        stroke-width: 2;
+      }
+      .growth-active-edge {
+        fill: #34d399;
+        stroke: #d1fae5;
+        stroke-width: 2;
+      }
       a {
         color: #93c5fd;
       }
@@ -263,6 +374,9 @@ function renderHtml(): string {
       <section>
         <div class="pane-title">Events</div>
         <div id="eventsToolbar" class="toolbar">Select a project.</div>
+        <div id="growth" class="growth-panel">
+          <div class="empty">Select a project to see how its graph changes over time.</div>
+        </div>
         <div id="events" class="list"></div>
       </section>
       <section>
@@ -340,6 +454,126 @@ function renderHtml(): string {
         return parts.join(" ");
       }
 
+      function formatDelta(value) {
+        if (value > 0) {
+          return "+" + value;
+        }
+        if (value < 0) {
+          return String(value);
+        }
+        return "0";
+      }
+
+      function createGrowthPoints(events) {
+        return events
+          .map((event, index) => {
+            const nodeCount = Number(event && event.graph && event.graph.nodeCount);
+            const edgeCount = Number(event && event.graph && event.graph.edgeCount);
+            if (!Number.isFinite(nodeCount) || !Number.isFinite(edgeCount)) {
+              return null;
+            }
+
+            const parsedTime = Date.parse(event.ts || "");
+            return {
+              command: event.command || "",
+              edgeCount,
+              index,
+              nodeCount,
+              time: Number.isFinite(parsedTime) ? parsedTime : index,
+              ts: event.ts || ""
+            };
+          })
+          .filter((point) => point !== null);
+      }
+
+      function renderGrowth() {
+        const container = document.getElementById("growth");
+        if (!state.project) {
+          container.innerHTML = '<div class="empty">Select a project to see how its graph changes over time.</div>';
+          return;
+        }
+
+        const points = createGrowthPoints(state.events);
+        if (points.length === 0) {
+          container.innerHTML = '<div class="empty">No graph history has been recorded for this project yet.</div>';
+          return;
+        }
+
+        const width = 640;
+        const height = 190;
+        const padding = { top: 12, right: 12, bottom: 20, left: 12 };
+        const innerWidth = width - padding.left - padding.right;
+        const innerHeight = height - padding.top - padding.bottom;
+        const maxValue = Math.max(
+          1,
+          ...points.map((point) => Math.max(point.nodeCount, point.edgeCount))
+        );
+        const yFor = (value) => padding.top + innerHeight - (value / maxValue) * innerHeight;
+        const xFor = (index) => {
+          if (points.length === 1) {
+            return padding.left + innerWidth / 2;
+          }
+          return padding.left + (index / (points.length - 1)) * innerWidth;
+        };
+        const buildPath = (key) =>
+          points
+            .map((point, index) => (index === 0 ? "M" : "L") + xFor(index) + " " + yFor(point[key]))
+            .join(" ");
+        const gridLines = [0, 0.25, 0.5, 0.75, 1]
+          .map((step) => {
+            const y = padding.top + innerHeight - innerHeight * step;
+            return '<line class="growth-grid" x1="' + padding.left + '" y1="' + y + '" x2="' + (width - padding.right) + '" y2="' + y + '"></line>';
+          })
+          .join("");
+        const selectedPoint =
+          points.find((point) => point.ts === state.activeEventTs) || points[points.length - 1];
+        const selectedIndex = points.findIndex((point) => point.ts === selectedPoint.ts);
+        const selectedX = xFor(selectedIndex);
+        const firstPoint = points[0];
+        const latestPoint = points[points.length - 1];
+
+        container.innerHTML =
+          '<div class="growth-summary">' +
+            '<div class="growth-card">' +
+              '<strong>Calls</strong>' +
+              '<span>' + escapeHtml(String(points.length)) + '</span>' +
+            '</div>' +
+            '<div class="growth-card">' +
+              '<strong>Nodes</strong>' +
+              '<span>' + escapeHtml(String(latestPoint.nodeCount)) + '</span>' +
+            '</div>' +
+            '<div class="growth-card">' +
+              '<strong>Edges</strong>' +
+              '<span>' + escapeHtml(String(latestPoint.edgeCount)) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<svg class="growth-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Project growth over time">' +
+            gridLines +
+            '<path class="growth-line-nodes" d="' + buildPath("nodeCount") + '"></path>' +
+            '<path class="growth-line-edges" d="' + buildPath("edgeCount") + '"></path>' +
+            '<line class="growth-active-line" x1="' + selectedX + '" y1="' + padding.top + '" x2="' + selectedX + '" y2="' + (height - padding.bottom) + '"></line>' +
+            '<circle class="growth-active-node" cx="' + selectedX + '" cy="' + yFor(selectedPoint.nodeCount) + '" r="5"></circle>' +
+            '<circle class="growth-active-edge" cx="' + selectedX + '" cy="' + yFor(selectedPoint.edgeCount) + '" r="5"></circle>' +
+          '</svg>' +
+          '<div class="growth-axis">' +
+            '<span>' + escapeHtml(formatFriendlyTimestamp(firstPoint.ts)) + '</span>' +
+            '<span>' + escapeHtml(formatFriendlyTimestamp(latestPoint.ts)) + '</span>' +
+          '</div>' +
+          '<div class="growth-legend">' +
+            '<span><i class="growth-swatch" style="background:#60a5fa"></i> Nodes</span>' +
+            '<span><i class="growth-swatch" style="background:#34d399"></i> Edges</span>' +
+          '</div>' +
+          '<div class="growth-selection">' +
+            '<strong>Selected Event</strong>' +
+            '<div>' + escapeHtml(formatFriendlyTimestamp(selectedPoint.ts)) + ' · ' + escapeHtml(selectedPoint.command || "unknown command") + '</div>' +
+            '<small>' +
+              'Nodes ' + escapeHtml(String(selectedPoint.nodeCount)) +
+              ' · Edges ' + escapeHtml(String(selectedPoint.edgeCount)) +
+              ' · Event ' + escapeHtml(String(selectedIndex + 1)) + ' of ' + escapeHtml(String(points.length)) +
+            '</small>' +
+          '</div>';
+      }
+
       function renderProjects() {
         const container = document.getElementById("projects");
         if (state.projects.length === 0) {
@@ -391,6 +625,7 @@ function renderHtml(): string {
             const event = events[index];
             state.activeEventTs = event ? event.ts : null;
             setLocationState(state.project ? state.project.cwdHash : null, event ? event.ts : null);
+            renderGrowth();
             renderDetail(event);
             container.querySelectorAll(".item").forEach((node) => node.classList.remove("active"));
             element.classList.add("active");
@@ -455,6 +690,7 @@ function renderHtml(): string {
         const defaultEvent = (eventTs && state.events.find((event) => event.ts === eventTs)) || state.events[state.events.length - 1] || null;
         state.activeEventTs = defaultEvent ? defaultEvent.ts : null;
         renderEvents();
+        renderGrowth();
 
         if (defaultEvent) {
           setLocationState(cwdHash, defaultEvent.ts);
@@ -477,6 +713,7 @@ function renderHtml(): string {
         state.projects = await fetchJson('/api/projects');
         renderProjects();
         renderEvents();
+        renderGrowth();
         if (state.projects.length > 0) {
           const { cwdHash } = getLocationState();
           const selectedProject =

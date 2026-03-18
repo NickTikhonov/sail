@@ -23,7 +23,7 @@ async function readStdin(): Promise<string> {
 
 async function executeWithLogging(input: {
   argv: string[];
-  command: "graph" | "init" | "patch" | "query" | "read" | "write";
+  command: string;
   expectsStdin: boolean;
   flags: FlagRecord;
   run: (stdin: string) => Promise<Awaited<ReturnType<typeof runCommand>>>;
@@ -47,6 +47,7 @@ async function executeWithLogging(input: {
       exitCode: 0,
       flags: input.flags,
       projectState: result.projectState,
+      quality: result.quality,
       stderr: result.stderr,
       stdin,
       stdout: result.stdout,
@@ -195,6 +196,84 @@ program
         run: async (stdin) =>
           runCommand({
             command: "patch",
+            diff: options.diff,
+            find: options.find,
+            id,
+            projectRoot: process.cwd(),
+            replace: options.replace,
+            stdin
+          })
+      });
+    }
+  );
+
+const testCommand = program
+  .command("test")
+  .summary("Work with node tests")
+  .description("Read, write, or patch colocated Vitest specs for one node at a time.");
+
+testCommand
+  .command("read")
+  .summary("Print a node test")
+  .description("Read the spec that belongs to one node.")
+  .argument("<id>")
+  .action(async (id: string) => {
+    await executeWithLogging({
+      argv: ["read", id],
+      command: "test",
+      expectsStdin: false,
+      flags: {},
+      run: async () =>
+        runCommand({
+          command: "test-read",
+          id,
+          projectRoot: process.cwd()
+        })
+    });
+  });
+
+testCommand
+  .command("write")
+  .summary("Create or replace a node test")
+  .description("Create a missing spec or replace an existing spec for one node from stdin.")
+  .argument("<id>")
+  .action(async (id: string) => {
+    await executeWithLogging({
+      argv: ["write", id],
+      command: "test",
+      expectsStdin: true,
+      flags: {},
+      run: async (stdin) =>
+        runCommand({
+          command: "test-write",
+          id,
+          projectRoot: process.cwd(),
+          stdin
+        })
+    });
+  });
+
+testCommand
+  .command("patch")
+  .summary("Edit a node test surgically")
+  .description("Patch one node spec either by exact text replacement or by applying a unified diff from stdin.")
+  .argument("<id>")
+  .option("--find <text>", "Exact text to replace")
+  .option("--replace <text>", "Replacement text for exact patch mode")
+  .option("--diff", "Read a unified diff for this node test from stdin", false)
+  .action(
+    async (
+      id: string,
+      options: { diff: boolean; find?: string; replace?: string }
+    ) => {
+      await executeWithLogging({
+        argv: ["patch", id],
+        command: "test",
+        expectsStdin: options.diff,
+        flags: options,
+        run: async (stdin) =>
+          runCommand({
+            command: "test-patch",
             diff: options.diff,
             find: options.find,
             id,

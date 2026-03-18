@@ -2,8 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { applyPatch, parsePatch } from "diff";
 import AgentScriptError from "./AgentScriptError.js";
+import analyzeTestDebt, { type TestDebtEntry } from "./analyzeTestDebt.js";
+import analyzeFunctionComplexity from "./analyzeFunctionComplexity.js";
 import buildProjectState from "./buildProjectState.js";
+import buildTestState from "./buildTestState.js";
+import countSpecTests from "./countSpecTests.js";
 import initProject from "./initProject.js";
+import runTargetSpec from "./runTargetSpec.js";
+import { getSpecPath, readSpecFile, toResolvedNodeId } from "./testFiles.js";
 
 type ProjectState = Awaited<ReturnType<typeof buildProjectState>>;
 type GraphNode = ProjectState["nodes"] extends Map<string, infer NodeType> ? NodeType : never;
@@ -48,9 +54,43 @@ type CommandInput =
       id: string;
       projectRoot: string;
       stdin: string;
+    }
+  | {
+      command: "test-read";
+      id: string;
+      projectRoot: string;
+    }
+  | {
+      command: "test-write";
+      id: string;
+      projectRoot: string;
+      stdin: string;
+    }
+  | {
+      command: "test-patch";
+      diff: boolean;
+      find?: string;
+      id: string;
+      projectRoot: string;
+      replace?: string;
+      stdin: string;
     };
 
+type QualitySummary = {
+  complexity?: number;
+  debtCount?: number;
+  debtNodes?: TestDebtEntry[];
+  failedTests?: number;
+  nodeId?: string;
+  passedTests?: number;
+  recommendedTests?: number;
+  specStatus?: "failed" | "missing" | "passed" | "unavailable";
+  testsFound?: number;
+  totalTests?: number;
+};
+
 type CommandResult = {
+  quality?: QualitySummary;
   projectState: ProjectState;
   shouldWriteSnapshot: boolean;
   stderr: string;
@@ -117,6 +157,59 @@ function renderFiles(nodes: GraphNode[]): string {
   return nodes
     .map((node) => `// ${node.pathFromRoot}\n${node.source.trimEnd()}`)
     .join("\n\n");
+}
+
+function renderRawFile(pathFromRoot: string, source: string): string {
+  return `// ${pathFromRoot}\n${source.trimEnd()}`;
+}
+
+function formatDebtEntry(entry: TestDebtEntry): string {
+  return `${entry.nodeId} (${entry.testsFound}/${entry.recommendedTests})`;
+}
+
+function renderDebtWarnings(debtEntries: TestDebtEntry[]): string[] {
+  if (debtEntries.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    `WARNING: Test debt is open for ${debtEntries.length} node${debtEntries.length === 1 ? "" : "s"}.`
+  ];
+
+  debtEntries.slice(0, 5).forEach((entry) => {
+    lines.push(
+      `WARNING: Node ${entry.nodeId} has ${entry.testsFound} test${entry.testsFound === 1 ? "" : "s"}; ` +
+        `recommended rough minimum is ${entry.recommendedTests}.`
+    );
+  });
+
+  if (debtEntries.length > 5) {
+    lines.push(`WARNING: ${debtEntries.length - 5} more node debts are still open.`);
+  }
+
+  const firstNodeId = debtEntries[0]?.nodeId;
+  if (firstNodeId) {
+    lines.push(
+      `WARNING: Next step: pay back test debt with \`agentscript test write ${firstNodeId}\` or \`agentscript test patch ${firstNodeId}\`.`
+    );
+  }
+
+  return lines;
+}
+
+async function assertNoOutstandingTestDebt(projectRoot: string): Promise<void> {
+  const projectState = await buildProjectState(projectRoot, { validateTypes: false });
+  const debtEntries = await analyzeTestDebt(projectRoot, projectState);
+  if (debtEntries.length === 0) {
+    return;
+  }
+
+  const summary = debtEntries.slice(0, 5).map(formatDebtEntry).join(", ");
+  throw new AgentScriptError(
+    `Cannot change implementation nodes while test debt is open.\n` +
+      `Outstanding node debt: ${summary}${debtEntries.length > 5 ? ", ..." : ""}.\n` +
+      `What to do: write or patch tests for the outstanding nodes first using \`agentscript test write <id>\` or \`agentscript test patch <id>\`.`
+  );
 }
 
 function renderGraph(
@@ -297,12 +390,12 @@ async function runGraph(input: Extract<CommandInput, { command: "graph" }>): Pro
   };
 }
 
-function applyExactPatch(source: string, find: string, replace: string): string {
+function applyExactPatch(source: string, find: string, replace: string, readHint: string): string {
   const matchCount = source.split(find).length - 1;
   if (matchCount === 0) {
     throw new AgentScriptError(
       `patch could not find the requested text.\n` +
-        `What to do: run \`agentscript read\` on the node, copy the exact text including whitespace, and retry.`
+        `What to do: run \`${readHint}\`, copy the exact text including whitespace, and retry.`
     );
   }
 
@@ -357,7 +450,115 @@ function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: s
   return output;
 }
 
+async function buildImplementationTestFeedback(
+  projectRoot: string,
+  node: GraphNode,
+  projectState: ProjectState
+): Promise<{ quality: QualitySummary; warnings: string[] }> {
+  const complexity = analyzeFunctionComplexity(node.source);
+  const recommendedTests = Math.max(1, complexity);
+  const specPath = getSpecPath(projectRoot, node.id);
+  const warnings: string[] = [];
+  let testsFound = 0;
+
+  const specExists = await fs
+    .access(specPath)
+    .then(() => true)
+    .catch(() => false);
+
+  if (specExists) {
+    const spec = await readSpecFile(projectRoot, node.id);
+    testsFound = countSpecTests(spec.source);
+  }
+
+  if (!specExists) {
+    warnings.push(
+      `WARNING: Node ${node.id} has estimated complexity ${complexity} and no tests. ` +
+        `Recommended rough minimum: ${recommendedTests}. ` +
+        `Next step: create tests with \`agentscript test write ${node.id}\`.`
+    );
+  } else if (testsFound < recommendedTests) {
+    warnings.push(
+      `WARNING: Node ${node.id} has ${testsFound} test${testsFound === 1 ? "" : "s"}. ` +
+        `Recommended rough minimum: ${recommendedTests}. ` +
+        `Next step: add tests with \`agentscript test write ${node.id}\` or \`agentscript test patch ${node.id}\`.`
+    );
+  }
+
+  const specRun = await runTargetSpec(projectRoot, node.id);
+  if (specRun.status === "failed") {
+    warnings.push(
+      `WARNING: Tests for node ${node.id} are failing ` +
+        `(${specRun.failed} failed, ${specRun.passed} passed, ${specRun.total} total). ` +
+        `Next step: fix node ${node.id} or patch its tests before continuing.`
+    );
+  } else if (specRun.status === "unavailable") {
+    warnings.push(
+      `WARNING: Could not run tests for node ${node.id}. ${specRun.reason} ` +
+        `Next step: install Vitest in the project, then rerun the change.`
+    );
+  }
+
+  const debtEntries = await analyzeTestDebt(projectRoot, projectState);
+  warnings.push(...renderDebtWarnings(debtEntries));
+
+  return {
+    quality: {
+      complexity,
+      debtCount: debtEntries.length,
+      debtNodes: debtEntries,
+      failedTests: specRun.status === "failed" ? specRun.failed : undefined,
+      nodeId: node.id,
+      passedTests: specRun.status === "failed" || specRun.status === "passed" ? specRun.passed : undefined,
+      recommendedTests,
+      specStatus: specRun.status,
+      testsFound,
+      totalTests: specRun.status === "failed" || specRun.status === "passed" ? specRun.total : undefined
+    },
+    warnings
+  };
+}
+
+async function buildSpecExecutionWarnings(
+  projectRoot: string,
+  id: string,
+  projectState: ProjectState
+): Promise<{ quality: QualitySummary; warnings: string[] }> {
+  const specRun = await runTargetSpec(projectRoot, id);
+  const warnings: string[] = [];
+
+  if (specRun.status === "failed") {
+    warnings.push(
+      `WARNING: Tests for node ${id} are failing ` +
+        `(${specRun.failed} failed, ${specRun.passed} passed, ${specRun.total} total). ` +
+        `Next step: patch the tests for node ${id} or fix the implementation before continuing.`
+    );
+  } else if (specRun.status === "unavailable") {
+    warnings.push(
+      `WARNING: Could not run tests for node ${id}. ${specRun.reason} ` +
+        `Next step: install Vitest in the project, then rerun the command.`
+    );
+  }
+
+  const debtEntries = await analyzeTestDebt(projectRoot, projectState);
+  warnings.push(...renderDebtWarnings(debtEntries));
+
+  return {
+    quality: {
+      debtCount: debtEntries.length,
+      debtNodes: debtEntries,
+      failedTests: specRun.status === "failed" ? specRun.failed : undefined,
+      nodeId: id,
+      passedTests: specRun.status === "failed" || specRun.status === "passed" ? specRun.passed : undefined,
+      specStatus: specRun.status,
+      totalTests: specRun.status === "failed" || specRun.status === "passed" ? specRun.total : undefined
+    },
+    warnings
+  };
+}
+
 async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Promise<CommandResult> {
+  await assertNoOutstandingTestDebt(input.projectRoot);
   const hasExactMode = typeof input.find === "string" || typeof input.replace === "string";
   if (input.diff === hasExactMode) {
     throw new AgentScriptError(
@@ -384,16 +585,28 @@ async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Pro
   const target = getNodeOrThrow(beforeState, input.id);
   const nextSource = input.diff
     ? applyUnifiedDiffPatch(target.source, input.stdin, target.pathFromRoot, target.id)
-    : applyExactPatch(target.source, input.find!, input.replace!);
+    : applyExactPatch(target.source, input.find!, input.replace!, `agentscript read ${target.id}`);
 
   await fs.writeFile(target.absPath, nextSource, "utf8");
 
   try {
     const afterState = await buildProjectState(input.projectRoot, { validateTypes: true });
+    const updatedNode = getNodeOrThrow(afterState, target.id);
+    const feedback =
+      updatedNode.kind === "function"
+        ? await buildImplementationTestFeedback(input.projectRoot, updatedNode, afterState)
+        : {
+            quality: {
+              debtCount: (await analyzeTestDebt(input.projectRoot, afterState)).length,
+              nodeId: updatedNode.id
+            },
+            warnings: renderDebtWarnings(await analyzeTestDebt(input.projectRoot, afterState))
+          };
     return {
+      quality: feedback.quality,
       projectState: afterState,
       shouldWriteSnapshot: true,
-      stderr: "",
+      stderr: feedback.warnings.join("\n"),
       stdout: `patched ${target.pathFromRoot}`,
       touchedNodes: [target.id]
     };
@@ -417,6 +630,7 @@ async function runInit(input: Extract<CommandInput, { command: "init" }>): Promi
 }
 
 async function runWrite(input: Extract<CommandInput, { command: "write" }>): Promise<CommandResult> {
+  await assertNoOutstandingTestDebt(input.projectRoot);
   if (!input.stdin.trim()) {
     throw new AgentScriptError(
       `write requires replacement file contents on stdin.\n` +
@@ -438,11 +652,22 @@ async function runWrite(input: Extract<CommandInput, { command: "write" }>): Pro
   try {
     const afterState = await buildProjectState(input.projectRoot, { validateTypes: true });
     const createdNode = afterState.nodes.get(resolvedId);
+    const feedback =
+      createdNode && createdNode.kind === "function"
+        ? await buildImplementationTestFeedback(input.projectRoot, createdNode, afterState)
+        : {
+            quality: {
+              debtCount: (await analyzeTestDebt(input.projectRoot, afterState)).length,
+              nodeId: createdNode ? createdNode.id : resolvedId
+            },
+            warnings: renderDebtWarnings(await analyzeTestDebt(input.projectRoot, afterState))
+          };
 
     return {
+      quality: feedback.quality,
       projectState: afterState,
       shouldWriteSnapshot: true,
-      stderr: "",
+      stderr: feedback.warnings.join("\n"),
       stdout: `${existingTarget ? "wrote" : "created"} ${path.relative(input.projectRoot, targetPath)}`,
       touchedNodes: [createdNode?.id ?? resolvedId]
     };
@@ -452,6 +677,119 @@ async function runWrite(input: Extract<CommandInput, { command: "write" }>): Pro
     } else {
       await fs.writeFile(targetPath, previousSource, "utf8");
     }
+    throw error;
+  }
+}
+
+async function runTestRead(input: Extract<CommandInput, { command: "test-read" }>): Promise<CommandResult> {
+  const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+  const node = getNodeOrThrow(projectState, input.id);
+  const spec = await readSpecFile(input.projectRoot, node.id);
+
+  return {
+    projectState,
+    shouldWriteSnapshot: false,
+    stderr: "",
+    stdout: renderRawFile(spec.pathFromRoot, spec.source),
+    touchedNodes: [node.id]
+  };
+}
+
+async function runTestWrite(input: Extract<CommandInput, { command: "test-write" }>): Promise<CommandResult> {
+  if (!input.stdin.trim()) {
+    throw new AgentScriptError(
+      `test write requires replacement test contents on stdin.\n` +
+        `What to do: pipe a full valid Vitest file into the command.\n` +
+        `Example: printf 'import { describe, expect, it } from \"vitest\";\\n\\ndescribe(\"exampleRoutine\", () => {\\n  it(\"works\", () => {\\n    expect(true).toBe(true);\\n  });\\n});\\n' | agentscript test write exampleRoutine`
+    );
+  }
+
+  const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+  const node = getNodeOrThrow(projectState, input.id);
+  const targetPath = getSpecPath(input.projectRoot, node.id);
+  const previousSource = await fs.readFile(targetPath, "utf8").catch(() => null);
+
+  await fs.writeFile(targetPath, input.stdin, "utf8");
+
+  try {
+    await buildTestState(input.projectRoot, { validateTypes: false });
+    const refreshedProjectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+    const feedback = await buildSpecExecutionWarnings(input.projectRoot, node.id, refreshedProjectState);
+
+    return {
+      quality: {
+        ...feedback.quality,
+        nodeId: node.id,
+        testsFound: countSpecTests(input.stdin)
+      },
+      projectState: refreshedProjectState,
+      shouldWriteSnapshot: false,
+      stderr: feedback.warnings.join("\n"),
+      stdout: `${previousSource === null ? "created" : "wrote"} tests for ${node.id}`,
+      touchedNodes: [node.id]
+    };
+  } catch (error) {
+    if (previousSource === null) {
+      await fs.unlink(targetPath).catch(() => undefined);
+    } else {
+      await fs.writeFile(targetPath, previousSource, "utf8");
+    }
+
+    throw error;
+  }
+}
+
+async function runTestPatch(input: Extract<CommandInput, { command: "test-patch" }>): Promise<CommandResult> {
+  const hasExactMode = typeof input.find === "string" || typeof input.replace === "string";
+  if (input.diff === hasExactMode) {
+    throw new AgentScriptError(
+      `test patch requires exactly one mode.\n` +
+        `What to do: use either \`agentscript test patch <id> --find <old> --replace <new>\` or \`agentscript test patch <id> --diff\` with unified diff on stdin.`
+    );
+  }
+
+  if (hasExactMode && (typeof input.find !== "string" || typeof input.replace !== "string")) {
+    throw new AgentScriptError(
+      `test patch exact mode requires both --find and --replace.\n` +
+        `What to do: provide both flags, or switch to \`--diff\` mode.`
+    );
+  }
+
+  if (input.diff && !input.stdin.trim()) {
+    throw new AgentScriptError(
+      `test patch --diff requires unified diff content on stdin.\n` +
+        `What to do: pipe a unified diff into the command, for example: \`cat change.diff | agentscript test patch ${input.id} --diff\`.`
+    );
+  }
+
+  const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+  const node = getNodeOrThrow(projectState, input.id);
+  const target = await readSpecFile(input.projectRoot, node.id);
+  const nextSource = input.diff
+    ? applyUnifiedDiffPatch(target.source, input.stdin, target.pathFromRoot, `${node.id}.spec`)
+    : applyExactPatch(target.source, input.find!, input.replace!, `agentscript test read ${node.id}`);
+
+  await fs.writeFile(target.absPath, nextSource, "utf8");
+
+  try {
+    await buildTestState(input.projectRoot, { validateTypes: false });
+    const refreshedProjectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+    const feedback = await buildSpecExecutionWarnings(input.projectRoot, node.id, refreshedProjectState);
+
+    return {
+      quality: {
+        ...feedback.quality,
+        nodeId: node.id,
+        testsFound: countSpecTests(nextSource)
+      },
+      projectState: refreshedProjectState,
+      shouldWriteSnapshot: false,
+      stderr: feedback.warnings.join("\n"),
+      stdout: `patched tests for ${node.id}`,
+      touchedNodes: [node.id]
+    };
+  } catch (error) {
+    await fs.writeFile(target.absPath, target.source, "utf8");
     throw error;
   }
 }
@@ -468,6 +806,12 @@ export default async function runCommand(input: CommandInput): Promise<CommandRe
       return runQuery(input);
     case "read":
       return runRead(input);
+    case "test-patch":
+      return runTestPatch(input);
+    case "test-read":
+      return runTestRead(input);
+    case "test-write":
+      return runTestWrite(input);
     case "write":
       return runWrite(input);
     default:

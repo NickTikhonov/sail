@@ -9,6 +9,8 @@ This project is meant to be worked on through AgentScript, not by manually editi
 - Use \`agentscript help\` first.
 - Prefer \`query\`, \`graph\`, and \`read\` before \`write\`.
 - Use \`write\` with a full valid file, not a fragment.
+- Use \`agentscript test write <id>\` and \`agentscript test patch <id>\` for node tests.
+- If a function write opens test debt, pay it back before the next implementation write.
 `;
 
 const CLAUDE_TEMPLATE = `Use AgentScript for all work in this repo.
@@ -60,11 +62,16 @@ function createPackageJson(projectRoot: string): string {
       version: "0.0.0",
       type: "module",
       scripts: {
+        dev: "tsx src/index.ts",
+        start: "tsx src/index.ts",
+        test: "vitest run",
         typecheck: "tsc --noEmit"
       },
       devDependencies: {
         "@types/node": "^24.12.0",
-        typescript: "^5.9.3"
+        tsx: "^4.20.5",
+        typescript: "^5.9.3",
+        vitest: "^3.2.4"
       }
     },
     null,

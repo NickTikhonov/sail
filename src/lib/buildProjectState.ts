@@ -58,7 +58,12 @@ async function collectSourceFiles(srcDir: string): Promise<string[]> {
         return collectSourceFiles(absPath);
       }
 
-      if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
+      if (
+        !entry.isFile() ||
+        !entry.name.endsWith(".ts") ||
+        entry.name.endsWith(".d.ts") ||
+        entry.name.endsWith(".spec.ts")
+      ) {
         return [];
       }
 
