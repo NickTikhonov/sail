@@ -62,3 +62,27 @@ test("init with a project name creates and initializes that directory", async (t
   assert.equal(packageJson.scripts.dev, "tsx sail/index.ts");
   assert.deepEqual(tsconfig.include, ["sail/**/*.ts"]);
 });
+
+test("init prepends sail guidance into an existing CLAUDE.md in the current directory", async (t) => {
+  const { homeDir, projectRoot } = await createTempProject(t);
+  const existingClaude = [
+    "# Existing Notes",
+    "",
+    "- keep the current deploy flow",
+    "- prefer small PRs",
+    ""
+  ].join("\n");
+
+  await fs.writeFile(path.join(projectRoot, "CLAUDE.md"), existingClaude, "utf8");
+
+  const result = await runCli(projectRoot, ["init"], { homeDir });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /prepended sail guidance to the existing CLAUDE\.md/i);
+  assert.match(result.stdout, /review that file and tailor the merged instructions/i);
+
+  const mergedClaude = await fs.readFile(path.join(projectRoot, "CLAUDE.md"), "utf8");
+  assert.match(mergedClaude, /^Use sail for all work in this repo\./);
+  assert.match(mergedClaude, /1\. Do not manually read or write files under `sail\/`\./);
+  assert.match(mergedClaude, /# Existing Notes/);
+  assert.match(mergedClaude, /- keep the current deploy flow/);
+});

@@ -25,6 +25,15 @@ function createClaudeTemplate(graphSrc: string): string {
 `;
 }
 
+function prependClaudeTemplate(existingContents: string, sailTemplate: string): string {
+  const trimmedExisting = existingContents.trim();
+  if (!trimmedExisting) {
+    return sailTemplate;
+  }
+
+  return `${sailTemplate.trimEnd()}\n\n${trimmedExisting}\n`;
+}
+
 const CLAUDE_SETTINGS_TEMPLATE = `${JSON.stringify(
   {
     permissions: {
@@ -170,13 +179,13 @@ export default async function initProject(
   const docsHelpPath = path.join(target.targetRoot, "docs", "sail-help.md");
   const claudePath = path.join(target.targetRoot, "CLAUDE.md");
   const claudeSettingsPath = path.join(target.targetRoot, ".claude", "settings.local.json");
+  const canMergeClaude = !target.createdDirectory && (await pathExists(claudePath));
   const targetPaths = [
     configPath,
     packageJsonPath,
     tsconfigPath,
     indexPath,
     docsHelpPath,
-    claudePath,
     claudeSettingsPath
   ];
 
@@ -203,24 +212,40 @@ export default async function initProject(
   await writeFile(tsconfigPath, createTsconfig(defaultGraphSrc));
   await writeFile(indexPath, INDEX_TEMPLATE);
   await writeFile(docsHelpPath, createProjectHelpTemplate(defaultGraphSrc));
-  await writeFile(claudePath, createClaudeTemplate(defaultGraphSrc));
+  const claudeTemplate = createClaudeTemplate(defaultGraphSrc);
+  if (canMergeClaude) {
+    const existingClaude = await fs.readFile(claudePath, "utf8");
+    await writeFile(claudePath, prependClaudeTemplate(existingClaude, claudeTemplate));
+  } else {
+    await writeFile(claudePath, claudeTemplate);
+  }
   await writeFile(claudeSettingsPath, CLAUDE_SETTINGS_TEMPLATE);
 
   const header = target.createdDirectory
     ? `initialized project in ${path.relative(projectRoot, target.targetRoot)}:`
     : "initialized project files:";
 
+  const lines = [
+    header,
+    `- ${path.relative(target.targetRoot, configPath) || "sail.config.json"}`,
+    `- ${path.relative(target.targetRoot, packageJsonPath) || "package.json"}`,
+    `- ${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"}`,
+    `- ${path.relative(target.targetRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
+    `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help.md"}`,
+    `- ${path.relative(target.targetRoot, claudePath) || "CLAUDE.md"}`,
+    `- ${path.relative(target.targetRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
+  ];
+
+  if (canMergeClaude) {
+    lines.push(
+      "",
+      "note: prepended sail guidance to the existing CLAUDE.md.",
+      "review that file and tailor the merged instructions to fit your workflow."
+    );
+  }
+
   return {
     projectRoot: target.targetRoot,
-    stdout: [
-      header,
-      `- ${path.relative(target.targetRoot, configPath) || "sail.config.json"}`,
-      `- ${path.relative(target.targetRoot, packageJsonPath) || "package.json"}`,
-      `- ${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"}`,
-      `- ${path.relative(target.targetRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
-      `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help.md"}`,
-      `- ${path.relative(target.targetRoot, claudePath) || "CLAUDE.md"}`,
-      `- ${path.relative(target.targetRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
-    ].join("\n")
+    stdout: lines.join("\n")
   };
 }
