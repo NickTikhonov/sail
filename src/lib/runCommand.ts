@@ -9,7 +9,7 @@ import buildTestState from "./buildTestState.js";
 import countSpecTests from "./countSpecTests.js";
 import initProject from "./initProject.js";
 import runTargetSpec from "./runTargetSpec.js";
-import { getSpecPath, readSpecFile, toResolvedNodeId } from "./testFiles.js";
+import { getSpecPath, readSpecFile } from "./testFiles.js";
 
 type ProjectState = Awaited<ReturnType<typeof buildProjectState>>;
 type GraphNode = ProjectState["nodes"] extends Map<string, infer NodeType> ? NodeType : never;
@@ -104,7 +104,7 @@ function getNodeOrThrow(projectState: ProjectState, id: string): GraphNode {
   if (!node) {
     throw new SailError(
       `Could not find node ${id}.\n` +
-        `What to do: run \`sail query ${id}\` to find similar node ids, or create \`src/${id}.ts\` as a valid node file.`
+        `What to do: run \`sail query ${id}\` to find similar node ids, or create \`${path.join(projectState.graphSrc, `${resolvedId}.ts`)}\` as a valid node file.`
     );
   }
 
@@ -420,13 +420,14 @@ function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: s
 
   const [patch] = patches;
   const fileNames = [patch.oldFileName, patch.newFileName].filter(Boolean);
+  const expectedFileName = path.basename(expectedPath);
   const allowedNames = new Set([
     expectedPath,
     `a/${expectedPath}`,
     `b/${expectedPath}`,
-    `src/${expectedId}.ts`,
-    `a/src/${expectedId}.ts`,
-    `b/src/${expectedId}.ts`,
+    expectedFileName,
+    `a/${expectedFileName}`,
+    `b/${expectedFileName}`,
     `${expectedId}.ts`,
     `a/${expectedId}.ts`,
     `b/${expectedId}.ts`
@@ -457,7 +458,7 @@ async function buildImplementationTestFeedback(
 ): Promise<{ quality: QualitySummary; warnings: string[] }> {
   const complexity = analyzeFunctionComplexity(node.source);
   const recommendedTests = Math.max(1, complexity);
-  const specPath = getSpecPath(projectRoot, node.id);
+  const specPath = await getSpecPath(projectRoot, node.id);
   const warnings: string[] = [];
   let testsFound = 0;
 
@@ -644,7 +645,7 @@ async function runWrite(input: Extract<CommandInput, { command: "write" }>): Pro
   const existingTarget = beforeState.nodes.get(resolvedId);
   const targetPath = existingTarget
     ? path.join(input.projectRoot, existingTarget.pathFromRoot)
-    : path.join(beforeState.srcDir, `${resolvedId}.ts`);
+    : path.join(beforeState.graphSrcDir, `${resolvedId}.ts`);
   const previousSource = existingTarget?.source ?? null;
 
   await fs.writeFile(targetPath, input.stdin, "utf8");
@@ -706,7 +707,7 @@ async function runTestWrite(input: Extract<CommandInput, { command: "test-write"
 
   const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
   const node = getNodeOrThrow(projectState, input.id);
-  const targetPath = getSpecPath(input.projectRoot, node.id);
+  const targetPath = await getSpecPath(input.projectRoot, node.id);
   const previousSource = await fs.readFile(targetPath, "utf8").catch(() => null);
 
   await fs.writeFile(targetPath, input.stdin, "utf8");

@@ -42,7 +42,7 @@ export default async function runTargetSpec(
   projectRoot: string,
   id: string
 ): Promise<TargetSpecRunResult> {
-  const specPath = getSpecPath(projectRoot, id);
+  const specPath = await getSpecPath(projectRoot, id);
   if (!(await pathExists(specPath))) {
     return {
       status: "missing"

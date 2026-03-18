@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Project, SyntaxKind, ts } from "ts-morph";
 import SailError from "./SailError.js";
+import readSailConfig from "./readSailConfig.js";
 
 type NodeKind = "const" | "function" | "main" | "type";
 
@@ -12,8 +13,8 @@ type GraphNode = {
   importedBy: string[];
   imports: string[];
   kind: NodeKind;
+  pathFromGraphSrc: string;
   pathFromRoot: string;
-  pathFromSrc: string;
   source: string;
 };
 
@@ -25,11 +26,12 @@ type GraphSummary = {
 
 type ProjectState = {
   cwdHash: string;
+  graphSrc: string;
+  graphSrcDir: string;
   graphSummary: GraphSummary;
   nodes: Map<string, GraphNode>;
   projectRoot: string;
   reverseEdges: Map<string, Set<string>>;
-  srcDir: string;
 };
 
 type BuildProjectStateOptions = {
@@ -96,6 +98,45 @@ function getTopLevelExecutableStatements(sourceFilePath: string, statements: Nod
       return true;
     })
     .map((statement) => statement.getKindName());
+}
+
+function validateOnlyDefaultExportSurface(sourceFile: import("ts-morph").SourceFile, fileId: string): void {
+  if (sourceFile.getExportDeclarations().length > 0) {
+    throw new SailError(
+      `Named export declarations are not allowed in ${fileId}.ts.\n` +
+        `What to do: keep one public node per file and expose it only through the single default export.`
+    );
+  }
+
+  const hasNamedFunctionExport = sourceFile
+    .getFunctions()
+    .some((declaration) => declaration.hasExportKeyword() && !declaration.isDefaultExport());
+  if (hasNamedFunctionExport) {
+    throw new SailError(
+      `Named function exports are not allowed in ${fileId}.ts.\n` +
+        `What to do: keep one public node per file and expose it only through the single default export.`
+    );
+  }
+
+  const hasNamedInterfaceExport = sourceFile
+    .getInterfaces()
+    .some((declaration) => declaration.hasExportKeyword() && !declaration.isDefaultExport());
+  if (hasNamedInterfaceExport) {
+    throw new SailError(
+      `Named interface exports are not allowed in ${fileId}.ts.\n` +
+        `What to do: keep one public node per file and expose it only through the single default export.`
+    );
+  }
+
+  const hasNamedVariableExport = sourceFile
+    .getVariableStatements()
+    .some((statement) => statement.hasExportKeyword());
+  if (hasNamedVariableExport) {
+    throw new SailError(
+      `Named variable exports are not allowed in ${fileId}.ts.\n` +
+        `What to do: keep one public node per file and expose it only through the single default export.`
+    );
+  }
 }
 
 function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: string): ClassifiedExport {
@@ -242,7 +283,7 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
   );
 }
 
-function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): void {
+function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile, graphSrc: string): void {
   const fileId = path.basename(sourceFile.getBaseName(), ".ts");
   const statements = sourceFile.getStatements();
   const executableStatements = getTopLevelExecutableStatements(sourceFile.getFilePath(), statements);
@@ -250,9 +291,11 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
     throw new SailError(
       `Top-level executable statements are not allowed in ${fileId}.ts: ${executableStatements.join(", ")}.\n` +
         `What to do: pass a full valid node file to \`write\`, not raw text. Keep top-level code to declarations only. ` +
-        `The only exception is \`src/index.ts\`, which may invoke \`main()\` inside a local try/catch block.`
+        `The only exception is \`${path.join(graphSrc, "index.ts")}\`, which may invoke \`main()\` inside a local try/catch block.`
     );
   }
+
+  validateOnlyDefaultExportSurface(sourceFile, fileId);
 
   const classified = classifyExport(sourceFile, fileId);
   if (classified.kind !== "main") {
@@ -261,7 +304,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
 
   if (classified.name !== "main") {
     throw new SailError(
-      `src/index.ts must default export an async function named main.\n` +
+      `${path.join(graphSrc, "index.ts")} must default export an async function named main.\n` +
         `What to do: define \`export default async function main() { ... }\`.`
     );
   }
@@ -269,7 +312,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
   const mainFunction = sourceFile.getFunction("main");
   if (!mainFunction || !mainFunction.isAsync()) {
     throw new SailError(
-      `src/index.ts must default export an async function named main.\n` +
+      `${path.join(graphSrc, "index.ts")} must default export an async function named main.\n` +
         `What to do: define \`export default async function main() { ... }\`.`
     );
   }
@@ -280,7 +323,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
 
   if (!hasTryCatchInvocation) {
     throw new SailError(
-      `src/index.ts must invoke main() inside a local try/catch block.\n` +
+      `${path.join(graphSrc, "index.ts")} must invoke main() inside a local try/catch block.\n` +
         `What to do: add:\ntry {\n  await main();\n} catch (error) {\n  console.error(error);\n  process.exit(1);\n}`
     );
   }
@@ -329,20 +372,20 @@ export default async function buildProjectState(
   projectRoot: string,
   options: BuildProjectStateOptions = {}
 ): Promise<ProjectState> {
-  const srcDir = path.join(projectRoot, "src");
-  const srcStats = await fs.stat(srcDir).catch(() => null);
-  if (!srcStats?.isDirectory()) {
+  const config = await readSailConfig(projectRoot);
+  const graphSrcStats = await fs.stat(config.graphSrcDir).catch(() => null);
+  if (!graphSrcStats?.isDirectory()) {
     throw new SailError(
-      `Expected a src/ directory in ${projectRoot}.\n` +
-        `What to do: run \`sail init\` from the project root to create a starter project.`
+      `Expected the configured graph source directory \`${config.graphSrc}\` to exist.\n` +
+        `What to do: create \`${config.graphSrc}\`, or update \`sail.config.json\` to point at the correct directory.`
     );
   }
 
-  const files = await collectSourceFiles(srcDir);
-  if (!files.some((filePath) => filePath === path.join(srcDir, "index.ts"))) {
+  const files = await collectSourceFiles(config.graphSrcDir);
+  if (!files.some((filePath) => filePath === path.join(config.graphSrcDir, "index.ts"))) {
     throw new SailError(
-      `Expected src/index.ts to exist.\n` +
-        `What to do: run \`sail init\` to create the required entrypoint file.`
+      `Expected ${path.join(config.graphSrc, "index.ts")} to exist.\n` +
+        `What to do: run \`sail init\` to create the required entrypoint file, or add it yourself.`
     );
   }
 
@@ -359,7 +402,7 @@ export default async function buildProjectState(
 
   for (const sourceFile of sourceFiles) {
     ensureOnlyStaticImports(sourceFile);
-    validateIndexSourceFile(sourceFile);
+    validateIndexSourceFile(sourceFile, config.graphSrc);
   }
 
   validateDiagnostics(project, options.validateTypes ?? false);
@@ -387,15 +430,15 @@ export default async function buildProjectState(
       if (!targetSourceFile) {
         throw new SailError(
           `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} does not resolve to a project file.\n` +
-            `What to do: create the imported node under src/, or fix the import path so it points to an existing local file.`
+            `What to do: create the imported node under \`${config.graphSrc}/\`, or fix the import path so it points to an existing local file.`
         );
       }
 
       const targetPath = targetSourceFile.getFilePath();
-      if (!targetPath.startsWith(srcDir)) {
+      if (!targetPath.startsWith(config.graphSrcDir)) {
         throw new SailError(
-          `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} resolves outside src/.\n` +
-            `What to do: only import files that live under src/.`
+          `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} resolves outside ${config.graphSrc}.\n` +
+            `What to do: only import files that live under \`${config.graphSrc}/\`.`
         );
       }
 
@@ -408,8 +451,8 @@ export default async function buildProjectState(
       importedBy: [],
       imports: [...new Set(imports)].sort(),
       kind: classified.kind,
+      pathFromGraphSrc: path.relative(config.graphSrcDir, sourceFile.getFilePath()),
       pathFromRoot: path.relative(projectRoot, sourceFile.getFilePath()),
-      pathFromSrc: path.relative(srcDir, sourceFile.getFilePath()),
       source: sourceFile.getFullText()
     };
 
@@ -423,7 +466,7 @@ export default async function buildProjectState(
       if (!target) {
         throw new SailError(
           `Node ${node.id} imports missing local node ${importedId}.\n` +
-            `What to do: add \`src/${importedId}.ts\` or fix the import path.`
+            `What to do: add \`${path.join(config.graphSrc, `${importedId}.ts`)}\` or fix the import path.`
         );
       }
 
@@ -437,10 +480,11 @@ export default async function buildProjectState(
 
   return {
     cwdHash: hashText(projectRoot),
+    graphSrc: config.graphSrc,
+    graphSrcDir: config.graphSrcDir,
     graphSummary: computeGraphSummary(nodes),
     nodes,
     projectRoot,
-    reverseEdges,
-    srcDir
+    reverseEdges
   };
 }

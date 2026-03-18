@@ -34,7 +34,7 @@ export default async function analyzeTestDebt(
     functionNodes.map(async (node) => {
       const complexity = analyzeFunctionComplexity(node.source);
       const recommendedTests = Math.max(1, complexity);
-      const specPath = getSpecPath(projectRoot, node.id);
+      const specPath = await getSpecPath(projectRoot, node.id);
       const testsFound = (await pathExists(specPath))
         ? countSpecTests(await fs.readFile(specPath, "utf8"))
         : 0;

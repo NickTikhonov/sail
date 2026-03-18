@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Project, ts } from "ts-morph";
 import SailError from "./SailError.js";
+import readSailConfig from "./readSailConfig.js";
 import { collectTypeScriptFiles, getSpecPathFromId, isSpecFilePath } from "./testFiles.js";
 
 type TestNode = {
@@ -16,8 +17,9 @@ type BuildTestStateOptions = {
 };
 
 type TestState = {
+  graphSrc: string;
+  graphSrcDir: string;
   projectRoot: string;
-  srcDir: string;
   tests: Map<string, TestNode>;
 };
 
@@ -64,16 +66,16 @@ export default async function buildTestState(
   projectRoot: string,
   options: BuildTestStateOptions = {}
 ): Promise<TestState> {
-  const srcDir = path.join(projectRoot, "src");
-  const srcStats = await fs.stat(srcDir).catch(() => null);
-  if (!srcStats?.isDirectory()) {
+  const config = await readSailConfig(projectRoot);
+  const graphSrcStats = await fs.stat(config.graphSrcDir).catch(() => null);
+  if (!graphSrcStats?.isDirectory()) {
     throw new SailError(
-      `Expected a src/ directory in ${projectRoot}.\n` +
-        `What to do: run \`sail init\` from the project root to create a starter project.`
+      `Expected the configured graph source directory \`${config.graphSrc}\` to exist.\n` +
+        `What to do: create \`${config.graphSrc}\`, or update \`sail.config.json\` to point at the correct directory.`
     );
   }
 
-  const files = await collectTypeScriptFiles(srcDir);
+  const files = await collectTypeScriptFiles(config.graphSrcDir);
   const project = new Project({
     compilerOptions: {
       module: ts.ModuleKind.NodeNext,
@@ -94,26 +96,27 @@ export default async function buildTestState(
 
     const baseName = sourceFile.getBaseName();
     const id = baseName.replace(/\.spec\.ts$/, "");
-    const implementationPath = path.join(srcDir, `${id}.ts`);
+    const implementationPath = path.join(config.graphSrcDir, `${id}.ts`);
     const hasImplementation = files.includes(implementationPath);
     if (!hasImplementation) {
       throw new SailError(
         `Found tests for missing node ${id}.\n` +
-          `What to do: add node ${id}, or remove the orphaned tests at ${getSpecPathFromId(id)}.`
+          `What to do: add node ${id}, or remove the orphaned tests at ${getSpecPathFromId(config.graphSrc, id)}.`
       );
     }
 
     tests.set(id, {
       absPath: sourceFile.getFilePath(),
       id,
-      pathFromRoot: getSpecPathFromId(id),
+      pathFromRoot: getSpecPathFromId(config.graphSrc, id),
       source: sourceFile.getFullText()
     });
   }
 
   return {
+    graphSrc: config.graphSrc,
+    graphSrcDir: config.graphSrcDir,
     projectRoot,
-    srcDir,
     tests
   };
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import SailError from "./SailError.js";
+import readSailConfig from "./readSailConfig.js";
 
 export type TestFile = {
   absPath: string;
@@ -17,12 +18,13 @@ export function isSpecFilePath(filePath: string): boolean {
   return filePath.endsWith(".spec.ts");
 }
 
-export function getSpecPath(projectRoot: string, id: string): string {
-  return path.join(projectRoot, "src", `${toResolvedNodeId(id)}.spec.ts`);
+export function getSpecPathFromId(graphSrc: string, id: string): string {
+  return path.join(graphSrc, `${toResolvedNodeId(id)}.spec.ts`);
 }
 
-export function getSpecPathFromId(id: string): string {
-  return path.join("src", `${toResolvedNodeId(id)}.spec.ts`);
+export async function getSpecPath(projectRoot: string, id: string): Promise<string> {
+  const config = await readSailConfig(projectRoot);
+  return path.join(config.graphSrcDir, `${toResolvedNodeId(id)}.spec.ts`);
 }
 
 export async function pathExists(targetPath: string): Promise<boolean> {
@@ -35,8 +37,9 @@ export async function pathExists(targetPath: string): Promise<boolean> {
 }
 
 export async function readSpecFile(projectRoot: string, id: string): Promise<TestFile> {
+  const config = await readSailConfig(projectRoot);
   const resolvedId = toResolvedNodeId(id);
-  const absPath = getSpecPath(projectRoot, id);
+  const absPath = path.join(config.graphSrcDir, `${resolvedId}.spec.ts`);
   if (!(await pathExists(absPath))) {
     throw new SailError(
       `Could not find tests for node ${resolvedId}.\n` +
@@ -47,7 +50,7 @@ export async function readSpecFile(projectRoot: string, id: string): Promise<Tes
   return {
     absPath,
     id: resolvedId,
-    pathFromRoot: getSpecPathFromId(resolvedId),
+    pathFromRoot: getSpecPathFromId(config.graphSrc, resolvedId),
     source: await fs.readFile(absPath, "utf8")
   };
 }
