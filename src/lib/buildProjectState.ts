@@ -499,6 +499,10 @@ export default async function buildProjectState(
           targetSourceFile: declaration.getModuleSpecifierSourceFile()
         }))
     ].flatMap(({ moduleSpecifier, targetSourceFile }) => {
+      if (!moduleSpecifier) {
+        return [];
+      }
+
       if (!isLocalImport(moduleSpecifier)) {
         return [];
       }

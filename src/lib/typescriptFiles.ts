@@ -120,7 +120,7 @@ export function inferTypeScriptExtension(sourceText: string): ".ts" | ".tsx" {
     return ".ts";
   }
 
-  return tsxSource.parseDiagnostics.length <= tsSource.parseDiagnostics.length ? ".tsx" : ".ts";
+  return ".tsx";
 }
 
 export function inferSpecFileSuffix(sourceText: string): ".spec.ts" | ".spec.tsx" {
