@@ -4,6 +4,16 @@
 
 AI coding usually breaks down for the same reason human teams do: the codebase gets noisy, inconsistent, and hard to navigate. `sail` fixes that by exposing an **agent-first interface** that gives models the right context at the right time and enforces good standards on every write. The result is a **more predictable, more scalable codebase** that agents can keep working in without drifting into chaos.
 
+Just add `sail` into your project and prompt your agent to code through `sail` and see the magic instantly:
+
+Sail guides your agent towards writing quality code by default:
+
+<img width="840" height="537" alt="Screenshot 2026-03-18 at 15 32 24" src="https://github.com/user-attachments/assets/760007d5-4091-4437-902b-34ab2afc88cd" />
+
+Sail blocks your agent when it breaks conventions. Tech debt must be paid immediately!
+
+<img width="844" height="618" alt="Screenshot 2026-03-18 at 15 27 11" src="https://github.com/user-attachments/assets/3cd95dbd-5733-46a8-b2a2-ad92d5c5aa55" />
+
 ## Quick Start 🚀
 
 ### Web Apps 🌐
@@ -38,14 +48,6 @@ Instead of exposing a free-for-all filesystem, `sail` gives the agent a tighter 
 - ✅ Does a compile and type check on every agent edit, giving your agent immediate feedback on broken imports, bad types, and invalid code. No more silently broken projects.
 - 🧪 Forces your agents to write an appropriate number of tests for every file right after making writes or edits, instead of leaving the test suite as "future work."
 - 🧱 Keeps your public boundaries clean, so agents do not slowly turn your app into a bowl of spaghetti.
-
-Sail guides your agent towards writing quality code by default:
-
-<img width="840" height="537" alt="Screenshot 2026-03-18 at 15 32 24" src="https://github.com/user-attachments/assets/760007d5-4091-4437-902b-34ab2afc88cd" />
-
-Sail blocks your agent when it breaks conventions. Tech debt must be paid immediately!
-
-<img width="844" height="618" alt="Screenshot 2026-03-18 at 15 27 11" src="https://github.com/user-attachments/assets/3cd95dbd-5733-46a8-b2a2-ad92d5c5aa55" />
 
 ## How Sail Works ⚙️
 
