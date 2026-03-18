@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 
 export type TestFile = {
   absPath: string;
@@ -38,9 +38,9 @@ export async function readSpecFile(projectRoot: string, id: string): Promise<Tes
   const resolvedId = toResolvedNodeId(id);
   const absPath = getSpecPath(projectRoot, id);
   if (!(await pathExists(absPath))) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Could not find tests for node ${resolvedId}.\n` +
-        `What to do: create them with \`agentscript test write ${resolvedId}\`.`
+        `What to do: create them with \`sail test write ${resolvedId}\`.`
     );
   }
 

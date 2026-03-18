@@ -9,7 +9,7 @@ The MVP should:
 - enforce a strict file-level data model
 - build a local dependency graph from static imports
 - expose a minimal CLI for `read`, `write`, `query`, and `graph`
-- log every command to a per-project JSONL audit log under `~/.agentscript`
+- log every command to a per-project JSONL audit log under `~/.sail`
 
 This spec is intentionally narrow. It is the implementation baseline, not the long-term vision.
 
@@ -35,19 +35,19 @@ The CLI should use `ts-morph` as the main abstraction layer and rely on `typescr
 ## Local developer installation
 The MVP must be easy to iterate on locally with AI models and shell workflows.
 
-That means the CLI must be installable in a way that makes the `agentscript` command available on the user's `PATH`.
+That means the CLI must be installable in a way that makes the `sail` command available on the user's `PATH`.
 
 ### Requirement
 The project must provide a single local developer command that:
 
 - recompiles the CLI
 - refreshes the linked executable
-- leaves `agentscript` immediately runnable from any shell on the machine
+- leaves `sail` immediately runnable from any shell on the machine
 
 In other words, after running one rebuild command, the developer should be able to invoke:
 
 ```sh
-agentscript ...
+sail ...
 ```
 
 without manually copying binaries, editing shell config, or re-linking by hand.
@@ -170,7 +170,7 @@ For the MVP, it must validate:
 - the node kind is allowed
 - local imports resolve to indexed project files
 - only static imports are used
-- `~/.agentscript` runtime state can be created and written to
+- `~/.sail` runtime state can be created and written to
 
 Anything outside these rules is out of scope for the MVP.
 
@@ -180,7 +180,7 @@ The CLI is invoked from the project root.
 Base form:
 
 ```sh
-agentscript <command> [args] [flags]
+sail <command> [args] [flags]
 ```
 
 The MVP has four commands:
@@ -195,7 +195,7 @@ Reads a node and prints a local context bundle.
 
 ### Usage
 ```sh
-agentscript read <id> [--depth <n>] [--revdepth <n>]
+sail read <id> [--depth <n>] [--revdepth <n>]
 ```
 
 ### Semantics
@@ -234,7 +234,7 @@ Replaces the full contents of an existing node file.
 
 ### Usage
 ```sh
-agentscript write <id>
+sail write <id>
 ```
 
 ### Semantics
@@ -250,7 +250,7 @@ Plain text only.
 Example:
 
 ```sh
-echo "..." | agentscript write getUser
+echo "..." | sail write getUser
 ```
 
 Patch-based mutation is out of scope for the MVP. `write` is full-file replacement only.
@@ -260,7 +260,7 @@ Finds nodes by id or simple text match.
 
 ### Usage
 ```sh
-agentscript query <term> [--exact]
+sail query <term> [--exact]
 ```
 
 ### Semantics
@@ -284,7 +284,7 @@ Prints graph structure for a node.
 
 ### Usage
 ```sh
-agentscript graph [id] [--depth <n>] [--reverse]
+sail graph [id] [--depth <n>] [--reverse]
 ```
 
 ### Semantics
@@ -313,7 +313,7 @@ getUser
 The CLI must maintain runtime state under:
 
 ```text
-~/.agentscript
+~/.sail
 ```
 
 This state is used for append-only audit logging and full graph snapshots.
@@ -321,7 +321,7 @@ This state is used for append-only audit logging and full graph snapshots.
 ### Directory layout
 
 ```text
-~/.agentscript/
+~/.sail/
   projects.jsonl
   logs/
     <cwd-hash>.jsonl
@@ -377,7 +377,7 @@ Writing a full graph snapshot after `graph` is optional and not required in v1.
 - `ts-morph`
 
 ### Standard library usage
-- Node.js filesystem APIs for scanning `src/`, reading stdin, writing files, and maintaining `~/.agentscript`
+- Node.js filesystem APIs for scanning `src/`, reading stdin, writing files, and maintaining `~/.sail`
 - Node.js path utilities for project-relative resolution
 - a simple hash function implementation for `cwdHash` and `graphHash`
 
@@ -468,8 +468,8 @@ The MVP is complete when:
 - `graph` prints an indented text graph
 - `write` reads from stdin and revalidates the project
 - every command writes one JSONL audit event
-- mutating commands write full graph snapshots under `~/.agentscript`
-- one local developer command rebuilds the CLI and leaves `agentscript` immediately available on `PATH`
+- mutating commands write full graph snapshots under `~/.sail`
+- one local developer command rebuilds the CLI and leaves `sail` immediately available on `PATH`
 
 ## Bottom line
 The MVP is a strict TypeScript CLI built on `ts-morph` and `typescript`, with:

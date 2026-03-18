@@ -2,7 +2,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 
 type ProjectRecord = {
   cwd: string;
@@ -16,7 +16,7 @@ type SnapshotRecord = {
 };
 
 function getStateDir(): string {
-  return path.join(os.homedir(), ".agentscript");
+  return path.join(os.homedir(), ".sail");
 }
 
 function escapeHtml(value: string): string {
@@ -123,7 +123,7 @@ function renderHtml(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AgentScript UI</title>
+    <title>sail UI</title>
     <style>
       :root {
         color-scheme: dark;
@@ -363,8 +363,8 @@ function renderHtml(): string {
   </head>
   <body>
     <header>
-      <h1>AgentScript UI</h1>
-      <p>Browse projects, command logs, and graph snapshots from <code>~/.agentscript</code>.</p>
+      <h1>sail UI</h1>
+      <p>Browse projects, command logs, and graph snapshots from <code>~/.sail</code>.</p>
     </header>
     <main>
       <section>
@@ -433,7 +433,7 @@ function renderHtml(): string {
       }
 
       function renderCommandLine(event) {
-        const parts = ["agentscript", event.command];
+        const parts = ["sail", event.command];
         const flags = event.flags || {};
 
         Object.entries(flags).forEach(([key, value]) => {
@@ -835,8 +835,8 @@ export default async function startUiServer(preferredPort: number): Promise<stri
     }
   }
 
-  throw new AgentScriptError(
+  throw new SailError(
     `Could not start the UI server.\n` +
-      `What to do: free up port ${preferredPort} or pass a different port with \`agentscript ui --port <n>\`.`
+      `What to do: free up port ${preferredPort} or pass a different port with \`sail ui --port <n>\`.`
   );
 }

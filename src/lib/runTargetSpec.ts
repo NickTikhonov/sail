@@ -51,7 +51,7 @@ export default async function runTargetSpec(
 
   const outputPath = path.join(
     os.tmpdir(),
-    `agentscript-vitest-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
+    `sail-vitest-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
   );
   const args = [
     "--no-install",

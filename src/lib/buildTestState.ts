@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Project, ts } from "ts-morph";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 import { collectTypeScriptFiles, getSpecPathFromId, isSpecFilePath } from "./testFiles.js";
 
 type TestNode = {
@@ -38,7 +38,7 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
       getCurrentDirectory: () => process.cwd(),
       getNewLine: () => "\n"
     });
-    throw new AgentScriptError(
+    throw new SailError(
       `TypeScript syntax validation failed in test files.\n` +
         `What to do: fix the parse errors in the tests you just changed, then retry the command.\n${message}`
     );
@@ -54,7 +54,7 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
   }
 
   const message = project.formatDiagnosticsWithColorAndContext(typeDiagnostics);
-  throw new AgentScriptError(
+  throw new SailError(
     `TypeScript compile validation failed in test files.\n` +
       `What to do: fix the test TypeScript errors you just introduced, then retry the command.\n${message}`
   );
@@ -67,9 +67,9 @@ export default async function buildTestState(
   const srcDir = path.join(projectRoot, "src");
   const srcStats = await fs.stat(srcDir).catch(() => null);
   if (!srcStats?.isDirectory()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Expected a src/ directory in ${projectRoot}.\n` +
-        `What to do: run \`agentscript init\` from the project root to create a starter project.`
+        `What to do: run \`sail init\` from the project root to create a starter project.`
     );
   }
 
@@ -97,7 +97,7 @@ export default async function buildTestState(
     const implementationPath = path.join(srcDir, `${id}.ts`);
     const hasImplementation = files.includes(implementationPath);
     if (!hasImplementation) {
-      throw new AgentScriptError(
+      throw new SailError(
         `Found tests for missing node ${id}.\n` +
           `What to do: add node ${id}, or remove the orphaned tests at ${getSpecPathFromId(id)}.`
       );

@@ -1,8 +1,8 @@
 import { Command } from "commander";
 import process from "node:process";
-import AgentScriptError from "./lib/AgentScriptError.js";
+import SailError from "./lib/SailError.js";
 import logCommandEvent from "./lib/logCommandEvent.js";
-import readAgentHelp from "./lib/readAgentHelp.js";
+import readSailHelp from "./lib/readSailHelp.js";
 import runCommand from "./lib/runCommand.js";
 import startUiServer from "./lib/startUiServer.js";
 
@@ -70,7 +70,7 @@ async function executeWithLogging(input: {
         argv: input.argv,
         command: input.command,
         durationMs: Date.now() - startedAt,
-        exitCode: error instanceof AgentScriptError ? error.exitCode : 1,
+        exitCode: error instanceof SailError ? error.exitCode : 1,
         flags: input.flags,
         projectState: result.projectState,
         stderr: message,
@@ -83,21 +83,21 @@ async function executeWithLogging(input: {
       // Best-effort logging only; setup failures should not mask the original error.
     }
 
-    process.exitCode = error instanceof AgentScriptError ? error.exitCode : 1;
+    process.exitCode = error instanceof SailError ? error.exitCode : 1;
   }
 }
 
 const program = new Command();
 
 program
-  .name("agentscript")
-  .description("Lean TypeScript graph CLI MVP")
-  .showHelpAfterError('Run "agentscript help" to see the project rules and valid command shapes.');
+  .name("sail")
+  .description("sail graph CLI MVP")
+  .showHelpAfterError('Run "sail help" to see the project rules and valid command shapes.');
 
 program
   .command("init")
-  .summary("Bootstrap a new AgentScript project")
-  .description("Create the minimal files needed for a fresh AgentScript TypeScript project.")
+  .summary("Bootstrap a new sail project")
+  .description("Create the minimal files needed for a fresh sail TypeScript project.")
   .option("--force", "Overwrite existing bootstrap files if they already exist", false)
   .action(async (options: { force: boolean }) => {
     await executeWithLogging({
@@ -117,11 +117,11 @@ program
 program
   .command("ui")
   .summary("Start interactive session browser")
-  .description("Start a tiny local web UI for browsing AgentScript projects, events, and graph snapshots.")
+  .description("Start a tiny local web UI for browsing sail projects, events, and graph snapshots.")
   .option("--port <n>", "Preferred local port for the UI server", "8888")
   .action(async (options: { port: string }) => {
     const url = await startUiServer(Number(options.port));
-    process.stdout.write(`AgentScript UI running at ${url}\n`);
+    process.stdout.write(`sail UI running at ${url}\n`);
   });
 
 program
@@ -334,7 +334,7 @@ program
   });
 
 async function main(): Promise<void> {
-  const helpPreamble = await readAgentHelp();
+  const helpPreamble = await readSailHelp();
   program.helpInformation = function helpInformation(): string {
     return `${helpPreamble}\n\n${Command.prototype.helpInformation.call(this)}`;
   };
@@ -344,5 +344,5 @@ async function main(): Promise<void> {
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`${message}\n`);
-  process.exitCode = error instanceof AgentScriptError ? error.exitCode : 1;
+  process.exitCode = error instanceof SailError ? error.exitCode : 1;
 });

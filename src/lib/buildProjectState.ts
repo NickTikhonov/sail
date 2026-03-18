@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Project, SyntaxKind, ts } from "ts-morph";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 
 type NodeKind = "const" | "function" | "main" | "type";
 
@@ -103,7 +103,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
     if (declaration.isDefaultExport()) {
       const name = declaration.getName();
       if (!name) {
-        throw new AgentScriptError(
+        throw new SailError(
           `Default-exported function in ${fileId}.ts must be named.\n` +
             `What to do: export a named function whose name matches the filename.`
         );
@@ -120,7 +120,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
     if (declaration.isDefaultExport()) {
       const name = declaration.getName();
       if (!name) {
-        throw new AgentScriptError(
+        throw new SailError(
           `Default-exported interface in ${fileId}.ts must be named.\n` +
             `What to do: export a named interface whose name matches the filename.`
         );
@@ -135,7 +135,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
 
   for (const declaration of sourceFile.getTypeAliases()) {
     if (declaration.hasExportKeyword()) {
-      throw new AgentScriptError(
+      throw new SailError(
         `Type aliases in ${fileId}.ts cannot be default exported in TypeScript.\n` +
           `What to do: use a default-exported interface for MVP type nodes.`
       );
@@ -144,7 +144,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
 
   for (const exportAssignment of sourceFile.getExportAssignments()) {
     if (exportAssignment.isExportEquals()) {
-      throw new AgentScriptError(
+      throw new SailError(
         `CommonJS export assignment is not allowed in ${fileId}.ts.\n` +
           `What to do: use ESM default export syntax instead.`
       );
@@ -152,7 +152,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
 
     const expression = exportAssignment.getExpression();
     if (!Node.isIdentifier(expression)) {
-      throw new AgentScriptError(
+      throw new SailError(
         `Default export in ${fileId}.ts must reference a named symbol.\n` +
           `What to do: declare a local named function, const, or interface and default export that symbol.`
       );
@@ -164,7 +164,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
       const variableStatement = variableDeclaration.getVariableStatement();
       const declarationKind = variableStatement?.getDeclarationKind();
       if (declarationKind !== "const") {
-        throw new AgentScriptError(
+        throw new SailError(
           `Default-exported variable in ${fileId}.ts must be declared with const.\n` +
             `What to do: replace let/var with const.`
         );
@@ -192,13 +192,13 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
       };
     }
 
-    throw new AgentScriptError(
+    throw new SailError(
       `Default export in ${fileId}.ts must reference a local function or const.\n` +
         `What to do: define the symbol in the same file, then default export it.`
     );
   }
 
-  throw new AgentScriptError(
+  throw new SailError(
     `Expected exactly one default export in ${fileId}.ts.\n` +
       `What to do: keep one public node per file and export it as the single default export.`
   );
@@ -220,7 +220,7 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
       getCurrentDirectory: () => process.cwd(),
       getNewLine: () => "\n"
     });
-    throw new AgentScriptError(
+    throw new SailError(
       `TypeScript syntax validation failed.\n` +
         `What to do: fix the parse errors in the file you just changed, then retry the command.\n${message}`
     );
@@ -236,7 +236,7 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
   }
 
   const message = project.formatDiagnosticsWithColorAndContext(typeDiagnostics);
-  throw new AgentScriptError(
+  throw new SailError(
     `TypeScript compile validation failed.\n` +
       `What to do: fix the TypeScript errors introduced by the change, then retry the command.\n${message}`
   );
@@ -247,7 +247,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
   const statements = sourceFile.getStatements();
   const executableStatements = getTopLevelExecutableStatements(sourceFile.getFilePath(), statements);
   if (executableStatements.length > 0) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Top-level executable statements are not allowed in ${fileId}.ts: ${executableStatements.join(", ")}.\n` +
         `What to do: pass a full valid node file to \`write\`, not raw text. Keep top-level code to declarations only. ` +
         `The only exception is \`src/index.ts\`, which may invoke \`main()\` inside a local try/catch block.`
@@ -260,7 +260,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
   }
 
   if (classified.name !== "main") {
-    throw new AgentScriptError(
+    throw new SailError(
       `src/index.ts must default export an async function named main.\n` +
         `What to do: define \`export default async function main() { ... }\`.`
     );
@@ -268,7 +268,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
 
   const mainFunction = sourceFile.getFunction("main");
   if (!mainFunction || !mainFunction.isAsync()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `src/index.ts must default export an async function named main.\n` +
         `What to do: define \`export default async function main() { ... }\`.`
     );
@@ -279,7 +279,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
     .some((statement) => statement.getCatchClause() && statement.getText().includes("main("));
 
   if (!hasTryCatchInvocation) {
-    throw new AgentScriptError(
+    throw new SailError(
       `src/index.ts must invoke main() inside a local try/catch block.\n` +
         `What to do: add:\ntry {\n  await main();\n} catch (error) {\n  console.error(error);\n  process.exit(1);\n}`
     );
@@ -288,7 +288,7 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile): voi
 
 function ensureOnlyStaticImports(sourceFile: import("ts-morph").SourceFile): void {
   if (sourceFile.getDescendantsOfKind(SyntaxKind.ImportEqualsDeclaration).length > 0) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Import equals declarations are not allowed in ${sourceFile.getBaseName()}.\n` +
         `What to do: use static ESM imports like \`import foo from "./foo"\`.`
     );
@@ -299,7 +299,7 @@ function ensureOnlyStaticImports(sourceFile: import("ts-morph").SourceFile): voi
     .find((expression) => expression.getExpression().getKind() === SyntaxKind.ImportKeyword);
 
   if (dynamicImport) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Dynamic imports are not allowed in ${sourceFile.getBaseName()}.\n` +
         `What to do: use static imports only so the dependency graph can be indexed.`
     );
@@ -332,17 +332,17 @@ export default async function buildProjectState(
   const srcDir = path.join(projectRoot, "src");
   const srcStats = await fs.stat(srcDir).catch(() => null);
   if (!srcStats?.isDirectory()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Expected a src/ directory in ${projectRoot}.\n` +
-        `What to do: run \`agentscript init\` from the project root to create a starter project.`
+        `What to do: run \`sail init\` from the project root to create a starter project.`
     );
   }
 
   const files = await collectSourceFiles(srcDir);
   if (!files.some((filePath) => filePath === path.join(srcDir, "index.ts"))) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Expected src/index.ts to exist.\n` +
-        `What to do: run \`agentscript init\` to create the required entrypoint file.`
+        `What to do: run \`sail init\` to create the required entrypoint file.`
     );
   }
 
@@ -371,7 +371,7 @@ export default async function buildProjectState(
     const id = path.basename(sourceFile.getBaseName(), ".ts");
     const classified = classifyExport(sourceFile, id);
     if (classified.name !== id && !(id === "index" && classified.name === "main")) {
-      throw new AgentScriptError(
+      throw new SailError(
         `Filename and exported symbol must match in ${sourceFile.getBaseName()}. Expected ${id}.\n` +
           `What to do: rename the exported symbol to match the filename, or rename the file to match the symbol.`
       );
@@ -385,7 +385,7 @@ export default async function buildProjectState(
 
       const targetSourceFile = declaration.getModuleSpecifierSourceFile();
       if (!targetSourceFile) {
-        throw new AgentScriptError(
+        throw new SailError(
           `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} does not resolve to a project file.\n` +
             `What to do: create the imported node under src/, or fix the import path so it points to an existing local file.`
         );
@@ -393,7 +393,7 @@ export default async function buildProjectState(
 
       const targetPath = targetSourceFile.getFilePath();
       if (!targetPath.startsWith(srcDir)) {
-        throw new AgentScriptError(
+        throw new SailError(
           `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} resolves outside src/.\n` +
             `What to do: only import files that live under src/.`
         );
@@ -421,7 +421,7 @@ export default async function buildProjectState(
     for (const importedId of node.imports) {
       const target = nodes.get(importedId);
       if (!target) {
-        throw new AgentScriptError(
+        throw new SailError(
           `Node ${node.id} imports missing local node ${importedId}.\n` +
             `What to do: add \`src/${importedId}.ts\` or fix the import path.`
         );

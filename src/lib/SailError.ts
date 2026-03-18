@@ -1,9 +1,9 @@
-export default class AgentScriptError extends Error {
+export default class SailError extends Error {
   public readonly exitCode: number;
 
   public constructor(message: string, exitCode = 1) {
     super(message);
-    this.name = "AgentScriptError";
+    this.name = "SailError";
     this.exitCode = exitCode;
   }
 }

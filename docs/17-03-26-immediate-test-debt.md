@@ -29,23 +29,23 @@ There are now two mutation classes.
 
 Implementation mutations:
 
-- `agentscript write <id>`
-- `agentscript patch <id>`
+- `sail write <id>`
+- `sail patch <id>`
 
 Test mutations:
 
-- `agentscript test write <id>`
-- `agentscript test patch <id>`
+- `sail test write <id>`
+- `sail test patch <id>`
 
 Read-only commands stay unaffected.
 
 ## Enforcement Rule
 
-On every implementation `write` or `patch`, AgentScript first analyzes the whole project for open test debt.
+On every implementation `write` or `patch`, sail first analyzes the whole project for open test debt.
 
 If test debt already exists anywhere in the codebase, the implementation mutation is rejected before any file changes happen.
 
-The error points the agent at the node ids that still need tests and tells it to use `agentscript test write` or `agentscript test patch`.
+The error points the agent at the node ids that still need tests and tells it to use `sail test write` or `sail test patch`.
 
 Test mutations are never blocked by test debt. They are the recovery path.
 
@@ -93,9 +93,9 @@ Skipped or todo tests do not count toward the total.
 
 If the repo currently has no open test debt:
 
-1. `agentscript write <id>` or `agentscript patch <id>` is allowed
+1. `sail write <id>` or `sail patch <id>` is allowed
 2. the node is validated and written
-3. AgentScript analyzes the whole repo again
+3. sail analyzes the whole repo again
 4. if the change opened test debt, the command succeeds but warns
 
 That warning tells the agent:
@@ -115,7 +115,7 @@ If the repo already has open test debt:
 
 ## Test Mutation Flow
 
-`agentscript test write <id>` and `agentscript test patch <id>`:
+`sail test write <id>` and `sail test patch <id>`:
 
 - modify the test that belongs to node `<id>`
 - validate the test file

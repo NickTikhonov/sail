@@ -1,7 +1,7 @@
-# agentscript: Initial Brainstorm
+# sail: Initial Brainstorm
 
 ## Introduction
-`agentscript` is a proposal for an AI-native TypeScript development system. The core idea is that software should not primarily be organized for human browsing through folders and large files, but for machine reasoning over a graph of routines. Instead of treating a codebase as loosely structured text, `agentscript` treats it as a constrained dependency graph made of small, globally addressable units.
+`sail` is a proposal for an AI-native TypeScript development system. The core idea is that software should not primarily be organized for human browsing through folders and large files, but for machine reasoning over a graph of routines. Instead of treating a codebase as loosely structured text, `sail` treats it as a constrained dependency graph made of small, globally addressable units.
 
 The project starts from a simple premise: most of the context in a normal codebase is irrelevant to any given change. If agents could retrieve only the functions, types, and constants that matter for a task, they could make safer edits, produce better documentation, and operate with much stronger architectural guarantees.
 
@@ -20,7 +20,7 @@ Current codebases are optimized for human readability and historical conventions
 This leads to a mismatch: AI systems are asked to reason about software using file layouts, naming patterns, and architectural conventions that were invented for humans. The result is often skeuomorphic AI coding, where agents imitate human workflows instead of working through a representation designed for machine navigation.
 
 ## Solution
-`agentscript` proposes a graph-native transpilation and tooling layer for TypeScript.
+`sail` proposes a graph-native transpilation and tooling layer for TypeScript.
 
 The system centers on a strict function-level architecture:
 
@@ -126,7 +126,7 @@ Useful evaluation methods include:
 - documentation quality: compare generated pseudocode summaries against actual system behavior
 - agent productivity: compare task completion quality and cost against conventional repository layouts
 
-An especially important experiment is to test the hypothesis that only a very small fraction of a large codebase is relevant to any given issue. If true, that validates the central promise of `agentscript`: software can be structured so that agents retrieve minimal, high-relevance context instead of navigating whole repositories.
+An especially important experiment is to test the hypothesis that only a very small fraction of a large codebase is relevant to any given issue. If true, that validates the central promise of `sail`: software can be structured so that agents retrieve minimal, high-relevance context instead of navigating whole repositories.
 
 ## MVP direction
 A practical MVP could include:

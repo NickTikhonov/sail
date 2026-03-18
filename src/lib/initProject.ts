@@ -1,29 +1,29 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 
-const PROJECT_HELP_TEMPLATE = `# AgentScript
+const PROJECT_HELP_TEMPLATE = `# sail
 
-This project is meant to be worked on through AgentScript, not by manually editing files under \`src/\`.
+This project is meant to be worked on through sail, not by manually editing files under \`src/\`.
 
-- Use \`agentscript help\` first.
+- Use \`sail help\` first.
 - Prefer \`query\`, \`graph\`, and \`read\` before \`write\`.
 - Use \`write\` with a full valid file, not a fragment.
-- Use \`agentscript test write <id>\` and \`agentscript test patch <id>\` for node tests.
+- Use \`sail test write <id>\` and \`sail test patch <id>\` for node tests.
 - If a function write opens test debt, pay it back before the next implementation write.
 `;
 
-const CLAUDE_TEMPLATE = `Use AgentScript for all work in this repo.
+const CLAUDE_TEMPLATE = `Use sail for all work in this repo.
 
 1. Do not manually read or write files under \`src/\`.
-2. Use \`agentscript\` commands to inspect and change the project.
-3. \`agentscript\` is already on PATH. Run \`agentscript help\` first.
+2. Use \`sail\` commands to inspect and change the project.
+3. \`sail\` is already on PATH. Run \`sail help\` first.
 `;
 
 const CLAUDE_SETTINGS_TEMPLATE = `${JSON.stringify(
   {
     permissions: {
-      allow: ["Bash(agentscript *)", "Read", "Edit", "Glob", "Grep"]
+      allow: ["Bash(sail *)", "Read", "Edit", "Glob", "Grep"]
     }
   },
   null,
@@ -35,7 +35,7 @@ const INDEX_TEMPLATE = `declare const process: {
 };
 
 export default async function main() {
-  console.log("hello from agentscript");
+  console.log("hello from sail");
 }
 
 try {
@@ -51,7 +51,7 @@ function toPackageName(projectRoot: string): string {
     .basename(projectRoot)
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "agentscript-project";
+    .replace(/^-+|-+$/g, "") || "sail-project";
 }
 
 function createPackageJson(projectRoot: string): string {
@@ -112,7 +112,7 @@ export default async function initProject(projectRoot: string, force: boolean): 
   const indexPath = path.join(srcDir, "index.ts");
   const packageJsonPath = path.join(projectRoot, "package.json");
   const tsconfigPath = path.join(projectRoot, "tsconfig.json");
-  const docsHelpPath = path.join(projectRoot, "docs", "agentscript-help.md");
+  const docsHelpPath = path.join(projectRoot, "docs", "sail-help.md");
   const claudePath = path.join(projectRoot, "CLAUDE.md");
   const claudeSettingsPath = path.join(projectRoot, ".claude", "settings.local.json");
   const targetPaths = [packageJsonPath, tsconfigPath, indexPath, docsHelpPath, claudePath, claudeSettingsPath];
@@ -125,11 +125,11 @@ export default async function initProject(projectRoot: string, force: boolean): 
     ).filter((targetPath): targetPath is string => targetPath !== null);
 
     if (existingPaths.length > 0) {
-      throw new AgentScriptError(
+      throw new SailError(
         `Refusing to overwrite existing bootstrap files: ${existingPaths
           .map((targetPath) => path.relative(projectRoot, targetPath))
           .join(", ")}.\n` +
-          `What to do: re-run \`agentscript init --force\` only if you want to replace the bootstrap files.`
+          `What to do: re-run \`sail init --force\` only if you want to replace the bootstrap files.`
       );
     }
   }
@@ -146,7 +146,7 @@ export default async function initProject(projectRoot: string, force: boolean): 
     `- ${path.relative(projectRoot, packageJsonPath) || "package.json"}`,
     `- ${path.relative(projectRoot, tsconfigPath) || "tsconfig.json"}`,
     `- ${path.relative(projectRoot, indexPath) || "src/index.ts"}`,
-    `- ${path.relative(projectRoot, docsHelpPath) || "docs/agentscript-help.md"}`,
+    `- ${path.relative(projectRoot, docsHelpPath) || "docs/sail-help.md"}`,
     `- ${path.relative(projectRoot, claudePath) || "CLAUDE.md"}`,
     `- ${path.relative(projectRoot, claudeSettingsPath) || ".claude/settings.local.json"}`
   ].join("\n");

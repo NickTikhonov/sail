@@ -63,7 +63,7 @@ function buildSnapshot(projectState: ProjectState): string {
 }
 
 export default async function logCommandEvent(input: LogEventInput): Promise<void> {
-  const stateDir = path.join(os.homedir(), ".agentscript");
+  const stateDir = path.join(os.homedir(), ".sail");
   const logsDir = path.join(stateDir, "logs");
   const graphsDir = path.join(stateDir, "graphs", input.projectState.cwdHash);
   const projectsPath = path.join(stateDir, "projects.jsonl");

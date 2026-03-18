@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { applyPatch, parsePatch } from "diff";
-import AgentScriptError from "./AgentScriptError.js";
+import SailError from "./SailError.js";
 import analyzeTestDebt, { type TestDebtEntry } from "./analyzeTestDebt.js";
 import analyzeFunctionComplexity from "./analyzeFunctionComplexity.js";
 import buildProjectState from "./buildProjectState.js";
@@ -102,9 +102,9 @@ function getNodeOrThrow(projectState: ProjectState, id: string): GraphNode {
   const resolvedId = id === "main" ? "index" : id;
   const node = projectState.nodes.get(resolvedId);
   if (!node) {
-    throw new AgentScriptError(
+    throw new SailError(
       `Could not find node ${id}.\n` +
-        `What to do: run \`agentscript query ${id}\` to find similar node ids, or create \`src/${id}.ts\` as a valid node file.`
+        `What to do: run \`sail query ${id}\` to find similar node ids, or create \`src/${id}.ts\` as a valid node file.`
     );
   }
 
@@ -190,7 +190,7 @@ function renderDebtWarnings(debtEntries: TestDebtEntry[]): string[] {
   const firstNodeId = debtEntries[0]?.nodeId;
   if (firstNodeId) {
     lines.push(
-      `WARNING: Next step: pay back test debt with \`agentscript test write ${firstNodeId}\` or \`agentscript test patch ${firstNodeId}\`.`
+      `WARNING: Next step: pay back test debt with \`sail test write ${firstNodeId}\` or \`sail test patch ${firstNodeId}\`.`
     );
   }
 
@@ -205,10 +205,10 @@ async function assertNoOutstandingTestDebt(projectRoot: string): Promise<void> {
   }
 
   const summary = debtEntries.slice(0, 5).map(formatDebtEntry).join(", ");
-  throw new AgentScriptError(
+  throw new SailError(
     `Cannot change implementation nodes while test debt is open.\n` +
       `Outstanding node debt: ${summary}${debtEntries.length > 5 ? ", ..." : ""}.\n` +
-      `What to do: write or patch tests for the outstanding nodes first using \`agentscript test write <id>\` or \`agentscript test patch <id>\`.`
+      `What to do: write or patch tests for the outstanding nodes first using \`sail test write <id>\` or \`sail test patch <id>\`.`
   );
 }
 
@@ -393,14 +393,14 @@ async function runGraph(input: Extract<CommandInput, { command: "graph" }>): Pro
 function applyExactPatch(source: string, find: string, replace: string, readHint: string): string {
   const matchCount = source.split(find).length - 1;
   if (matchCount === 0) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch could not find the requested text.\n` +
         `What to do: run \`${readHint}\`, copy the exact text including whitespace, and retry.`
     );
   }
 
   if (matchCount > 1) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch matched the requested text more than once.\n` +
         `What to do: provide a more specific \`--find\` string so exactly one replacement is applied.`
     );
@@ -412,7 +412,7 @@ function applyExactPatch(source: string, find: string, replace: string, readHint
 function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: string, expectedId: string): string {
   const patches = parsePatch(diffText);
   if (patches.length !== 1) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch --diff requires exactly one unified diff for the target node.\n` +
         `What to do: pass a diff that changes only ${expectedPath}.`
     );
@@ -433,7 +433,7 @@ function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: s
   ]);
 
   if (fileNames.some((fileName) => !allowedNames.has(fileName))) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch --diff targeted a different file.\n` +
         `What to do: pass a unified diff that only edits ${expectedPath}.`
     );
@@ -441,7 +441,7 @@ function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: s
 
   const output = applyPatch(source, diffText);
   if (output === false || output === source) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch --diff did not apply cleanly.\n` +
         `What to do: regenerate the diff against the current file contents and retry.`
     );
@@ -475,13 +475,13 @@ async function buildImplementationTestFeedback(
     warnings.push(
       `WARNING: Node ${node.id} has estimated complexity ${complexity} and no tests. ` +
         `Recommended rough minimum: ${recommendedTests}. ` +
-        `Next step: create tests with \`agentscript test write ${node.id}\`.`
+        `Next step: create tests with \`sail test write ${node.id}\`.`
     );
   } else if (testsFound < recommendedTests) {
     warnings.push(
       `WARNING: Node ${node.id} has ${testsFound} test${testsFound === 1 ? "" : "s"}. ` +
         `Recommended rough minimum: ${recommendedTests}. ` +
-        `Next step: add tests with \`agentscript test write ${node.id}\` or \`agentscript test patch ${node.id}\`.`
+        `Next step: add tests with \`sail test write ${node.id}\` or \`sail test patch ${node.id}\`.`
     );
   }
 
@@ -561,23 +561,23 @@ async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Pro
   await assertNoOutstandingTestDebt(input.projectRoot);
   const hasExactMode = typeof input.find === "string" || typeof input.replace === "string";
   if (input.diff === hasExactMode) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch requires exactly one mode.\n` +
-        `What to do: use either \`agentscript patch <id> --find <old> --replace <new>\` or \`agentscript patch <id> --diff\` with unified diff on stdin.`
+        `What to do: use either \`sail patch <id> --find <old> --replace <new>\` or \`sail patch <id> --diff\` with unified diff on stdin.`
     );
   }
 
   if (hasExactMode && (typeof input.find !== "string" || typeof input.replace !== "string")) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch exact mode requires both --find and --replace.\n` +
         `What to do: provide both flags, or switch to \`--diff\` mode.`
     );
   }
 
   if (input.diff && !input.stdin.trim()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `patch --diff requires unified diff content on stdin.\n` +
-        `What to do: pipe a unified diff into the command, for example: \`cat change.diff | agentscript patch ${input.id} --diff\`.`
+        `What to do: pipe a unified diff into the command, for example: \`cat change.diff | sail patch ${input.id} --diff\`.`
     );
   }
 
@@ -585,7 +585,7 @@ async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Pro
   const target = getNodeOrThrow(beforeState, input.id);
   const nextSource = input.diff
     ? applyUnifiedDiffPatch(target.source, input.stdin, target.pathFromRoot, target.id)
-    : applyExactPatch(target.source, input.find!, input.replace!, `agentscript read ${target.id}`);
+    : applyExactPatch(target.source, input.find!, input.replace!, `sail read ${target.id}`);
 
   await fs.writeFile(target.absPath, nextSource, "utf8");
 
@@ -632,10 +632,10 @@ async function runInit(input: Extract<CommandInput, { command: "init" }>): Promi
 async function runWrite(input: Extract<CommandInput, { command: "write" }>): Promise<CommandResult> {
   await assertNoOutstandingTestDebt(input.projectRoot);
   if (!input.stdin.trim()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `write requires replacement file contents on stdin.\n` +
         `What to do: pipe a full valid TypeScript file into the command.\n` +
-        `Example: printf 'export default async function main() {\\n  console.log(\"hello\");\\n}\\n\\ntry {\\n  await main();\\n} catch (error) {\\n  console.error(error);\\n  process.exit(1);\\n}\\n' | agentscript write main`
+        `Example: printf 'export default async function main() {\\n  console.log(\"hello\");\\n}\\n\\ntry {\\n  await main();\\n} catch (error) {\\n  console.error(error);\\n  process.exit(1);\\n}\\n' | sail write main`
     );
   }
 
@@ -697,10 +697,10 @@ async function runTestRead(input: Extract<CommandInput, { command: "test-read" }
 
 async function runTestWrite(input: Extract<CommandInput, { command: "test-write" }>): Promise<CommandResult> {
   if (!input.stdin.trim()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `test write requires replacement test contents on stdin.\n` +
         `What to do: pipe a full valid Vitest file into the command.\n` +
-        `Example: printf 'import { describe, expect, it } from \"vitest\";\\n\\ndescribe(\"exampleRoutine\", () => {\\n  it(\"works\", () => {\\n    expect(true).toBe(true);\\n  });\\n});\\n' | agentscript test write exampleRoutine`
+        `Example: printf 'import { describe, expect, it } from \"vitest\";\\n\\ndescribe(\"exampleRoutine\", () => {\\n  it(\"works\", () => {\\n    expect(true).toBe(true);\\n  });\\n});\\n' | sail test write exampleRoutine`
     );
   }
 
@@ -742,23 +742,23 @@ async function runTestWrite(input: Extract<CommandInput, { command: "test-write"
 async function runTestPatch(input: Extract<CommandInput, { command: "test-patch" }>): Promise<CommandResult> {
   const hasExactMode = typeof input.find === "string" || typeof input.replace === "string";
   if (input.diff === hasExactMode) {
-    throw new AgentScriptError(
+    throw new SailError(
       `test patch requires exactly one mode.\n` +
-        `What to do: use either \`agentscript test patch <id> --find <old> --replace <new>\` or \`agentscript test patch <id> --diff\` with unified diff on stdin.`
+        `What to do: use either \`sail test patch <id> --find <old> --replace <new>\` or \`sail test patch <id> --diff\` with unified diff on stdin.`
     );
   }
 
   if (hasExactMode && (typeof input.find !== "string" || typeof input.replace !== "string")) {
-    throw new AgentScriptError(
+    throw new SailError(
       `test patch exact mode requires both --find and --replace.\n` +
         `What to do: provide both flags, or switch to \`--diff\` mode.`
     );
   }
 
   if (input.diff && !input.stdin.trim()) {
-    throw new AgentScriptError(
+    throw new SailError(
       `test patch --diff requires unified diff content on stdin.\n` +
-        `What to do: pipe a unified diff into the command, for example: \`cat change.diff | agentscript test patch ${input.id} --diff\`.`
+        `What to do: pipe a unified diff into the command, for example: \`cat change.diff | sail test patch ${input.id} --diff\`.`
     );
   }
 
@@ -767,7 +767,7 @@ async function runTestPatch(input: Extract<CommandInput, { command: "test-patch"
   const target = await readSpecFile(input.projectRoot, node.id);
   const nextSource = input.diff
     ? applyUnifiedDiffPatch(target.source, input.stdin, target.pathFromRoot, `${node.id}.spec`)
-    : applyExactPatch(target.source, input.find!, input.replace!, `agentscript test read ${node.id}`);
+    : applyExactPatch(target.source, input.find!, input.replace!, `sail test read ${node.id}`);
 
   await fs.writeFile(target.absPath, nextSource, "utf8");
 
@@ -815,6 +815,6 @@ export default async function runCommand(input: CommandInput): Promise<CommandRe
     case "write":
       return runWrite(input);
     default:
-      throw new AgentScriptError(`Unsupported command.`);
+      throw new SailError(`Unsupported command.`);
   }
 }

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Support full-stack Next.js apps without giving up the core AgentScript model: keep most application logic as small, flat, globally addressable nodes, while letting Next.js keep its file-based routing and framework conventions.
+Support full-stack Next.js apps without giving up the core sail model: keep most application logic as small, flat, globally addressable nodes, while letting Next.js keep its file-based routing and framework conventions.
 
 ## Core Idea
 
@@ -11,7 +11,7 @@ In Next.js mode, not every file needs to be a graph node.
 Instead, the repo is split into two layers:
 
 - `app/**` contains thin framework adapter files such as `page.tsx`, `layout.tsx`, `route.ts`, and other Next entry files.
-- `src/nodes/**` contains the real AgentScript logic as a flat namespace of one-export-per-file nodes.
+- `src/nodes/**` contains the real sail logic as a flat namespace of one-export-per-file nodes.
 
 The bridge between those two layers is `src/index.ts`.
 
@@ -20,7 +20,7 @@ Rather than only exporting one special `main()` entrypoint, `src/index.ts` becom
 ## Proposed Layout
 
 - `app/**`: Next.js route files and framework-required files
-- `src/nodes/**`: flat AgentScript node namespace
+- `src/nodes/**`: flat sail node namespace
 - `src/index.ts`: named-export surface for all public app entrypoints
 
 Example:
@@ -51,7 +51,7 @@ Next adapter files in `app/**` stay very small. They receive framework inputs su
 That means:
 
 - Next.js still owns routing and runtime conventions.
-- AgentScript still owns the logical program graph.
+- sail still owns the logical program graph.
 - There is one canonical public surface for the app.
 
 ## Entrypoint Model
@@ -113,7 +113,7 @@ Those should live in `src/nodes/**`.
 - import presentational helpers or child components
 - contain the real page composition logic
 
-## Why This Fits AgentScript
+## Why This Fits sail
 
 This preserves the main benefits of the model:
 
@@ -133,7 +133,7 @@ If this mode is implemented, validation would likely split into two rule sets.
 
 For `src/nodes/**`:
 
-- keep the existing AgentScript node rules as much as possible
+- keep the existing sail node rules as much as possible
 - one public export per file
 - flat namespace
 - graph-safe static imports
@@ -156,7 +156,7 @@ For `src/index.ts`:
 A likely greenfield setup would be:
 
 1. Create a fresh Next.js app.
-2. Run something like `agentscript install next`.
+2. Run something like `sail install next`.
 3. Add `src/nodes/**`.
 4. Expand `src/index.ts` into the named-export public surface.
 5. Keep `app/**` files thin and route all meaningful logic into nodes.
@@ -165,4 +165,4 @@ A likely greenfield setup would be:
 
 This looks like the cleanest first version of Next.js support.
 
-It does not try to replace Next's file router. It simply constrains where the real logic lives, and uses `src/index.ts` as the explicit seam between the Next runtime and the AgentScript graph.
+It does not try to replace Next's file router. It simply constrains where the real logic lives, and uses `src/index.ts` as the explicit seam between the Next runtime and the sail graph.

@@ -103,7 +103,7 @@ The CLI is invoked from the project root.
 Base form:
 
 ```sh
-agentscript <command> [args] [flags]
+sail <command> [args] [flags]
 ```
 
 The MVP surface should stay as small as possible. A lean first version can have four commands:
@@ -118,7 +118,7 @@ Reads a node and returns its local context bundle.
 
 ### Usage
 ```sh
-agentscript read <id> [--depth <n>] [--revdepth <n>]
+sail read <id> [--depth <n>] [--revdepth <n>]
 ```
 
 ### Behavior
@@ -133,7 +133,7 @@ agentscript read <id> [--depth <n>] [--revdepth <n>]
 
 ### Example
 ```sh
-agentscript read getUser --depth 1 --revdepth 1
+sail read getUser --depth 1 --revdepth 1
 ```
 
 ### Output
@@ -163,7 +163,7 @@ Replaces the full contents of a node file.
 
 ### Usage
 ```sh
-agentscript write <id>
+sail write <id>
 ```
 
 ### Behavior
@@ -178,7 +178,7 @@ agentscript write <id>
 
 ### Example
 ```sh
-echo "..." | agentscript write getUser
+echo "..." | sail write getUser
 ```
 
 ## Command: `query`
@@ -186,7 +186,7 @@ Finds nodes by exact id or simple text match.
 
 ### Usage
 ```sh
-agentscript query <term> [--exact]
+sail query <term> [--exact]
 ```
 
 ### Behavior
@@ -198,8 +198,8 @@ agentscript query <term> [--exact]
 
 ### Example
 ```sh
-agentscript query user
-agentscript query getUser --exact
+sail query user
+sail query getUser --exact
 ```
 
 This keeps query usable before embeddings or semantic search exist.
@@ -218,7 +218,7 @@ Returns structural graph information for a node.
 
 ### Usage
 ```sh
-agentscript graph [id] [--depth <n>] [--reverse]
+sail graph [id] [--depth <n>] [--reverse]
 ```
 
 ### Behavior
@@ -230,9 +230,9 @@ agentscript graph [id] [--depth <n>] [--reverse]
 
 ### Example
 ```sh
-agentscript graph
-agentscript graph getUser --depth 2
-agentscript graph getUser --reverse
+sail graph
+sail graph getUser --depth 2
+sail graph getUser --reverse
 ```
 
 This command is intentionally separate from `read` so users can inspect structure without reading full source bundles.
@@ -257,7 +257,7 @@ getUser
 `query` prints one result per line.
 
 ## Runtime state and logging
-The MVP should maintain a well-known local state directory at `~/.agentscript`.
+The MVP should maintain a well-known local state directory at `~/.sail`.
 
 This directory is used for append-only command logs and graph snapshots.
 
@@ -271,7 +271,7 @@ This directory is used for append-only command logs and graph snapshots.
 A lean initial layout can be:
 
 ```text
-~/.agentscript/
+~/.sail/
   projects.jsonl
   logs/
     <cwd-hash>.jsonl
@@ -328,7 +328,7 @@ It may also happen after explicit `graph` commands if that proves useful, but it
 ```json
 {
   "ts": "2026-03-15T12:34:56.000Z",
-  "cwd": "/Users/nick/Documents/Code/agentscript",
+  "cwd": "/Users/nick/Documents/Code/sail",
   "cwdHash": "abc123",
   "command": "write",
   "argv": ["getUser"],
@@ -368,7 +368,7 @@ For the MVP, it should validate:
 - all indexed files contain exactly one default export
 - filename matches exported symbol name
 - indexed imports resolve inside the project when they target local nodes
-- `~/.agentscript` state can be initialized and written to
+- `~/.sail` state can be initialized and written to
 
 Anything outside these rules is out of scope for the first version.
 
@@ -376,10 +376,10 @@ Anything outside these rules is out of scope for the first version.
 The minimum viable interface is:
 
 ```sh
-agentscript read <id> [--depth <n>] [--revdepth <n>]
-agentscript write <id>
-agentscript query <term> [--exact]
-agentscript graph [id] [--depth <n>] [--reverse]
+sail read <id> [--depth <n>] [--revdepth <n>]
+sail write <id>
+sail query <term> [--exact]
+sail graph [id] [--depth <n>] [--reverse]
 ```
 
 And the minimum viable source model is:
@@ -393,7 +393,7 @@ And the minimum viable source model is:
 
 And the minimum viable runtime model is:
 
-- CLI state lives under `~/.agentscript`
+- CLI state lives under `~/.sail`
 - each project has a per-working-directory JSONL log
 - each command writes one structured log event
 - each log event includes a graph summary
