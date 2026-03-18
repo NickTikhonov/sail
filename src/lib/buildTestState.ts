@@ -3,7 +3,15 @@ import path from "node:path";
 import { Project, ts } from "ts-morph";
 import SailError from "./SailError.js";
 import readSailConfig from "./readSailConfig.js";
-import { collectTypeScriptFiles, getSpecPathFromId, isSpecFilePath } from "./testFiles.js";
+import { collectTypeScriptFiles } from "./testFiles.js";
+import {
+  describeNodeFilePath,
+  describeSpecFilePath,
+  isNodeFilePath,
+  isSpecFilePath,
+  stripNodeFileExtension,
+  stripSpecFileExtension
+} from "./typescriptFiles.js";
 
 type TestNode = {
   absPath: string;
@@ -22,6 +30,14 @@ type TestState = {
   projectRoot: string;
   tests: Map<string, TestNode>;
 };
+
+const JSX_SHIM_SOURCE = `declare namespace JSX {
+  interface Element {}
+  interface IntrinsicElements {
+    [elementName: string]: unknown;
+  }
+}
+`;
 
 function validateDiagnostics(project: Project, validateTypes: boolean): void {
   const syntaxDiagnostics = project
@@ -78,6 +94,7 @@ export default async function buildTestState(
   const files = await collectTypeScriptFiles(config.graphSrcDir);
   const project = new Project({
     compilerOptions: {
+      jsx: ts.JsxEmit.Preserve,
       module: ts.ModuleKind.NodeNext,
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       target: ts.ScriptTarget.ES2022
@@ -86,8 +103,10 @@ export default async function buildTestState(
   });
 
   const sourceFiles = files.map((filePath) => project.addSourceFileAtPath(filePath));
+  project.createSourceFile("__sail_jsx_shim.d.ts", JSX_SHIM_SOURCE, { overwrite: true });
   validateDiagnostics(project, options.validateTypes ?? false);
 
+  const implementationFiles = files.filter((filePath) => isNodeFilePath(filePath));
   const tests = new Map<string, TestNode>();
   for (const sourceFile of sourceFiles) {
     if (!isSpecFilePath(sourceFile.getFilePath())) {
@@ -95,20 +114,35 @@ export default async function buildTestState(
     }
 
     const baseName = sourceFile.getBaseName();
-    const id = baseName.replace(/\.spec\.ts$/, "");
-    const implementationPath = path.join(config.graphSrcDir, `${id}.ts`);
-    const hasImplementation = files.includes(implementationPath);
+    const id = stripSpecFileExtension(baseName);
+    const matchingImplementationPaths = implementationFiles.filter(
+      (filePath) => stripNodeFileExtension(path.basename(filePath)) === id
+    );
+    const hasImplementation = matchingImplementationPaths.length === 1;
+    if (matchingImplementationPaths.length > 1) {
+      throw new SailError(
+        `Found multiple implementation files for node ${id}.\n` +
+          `What to do: keep a single node file at ${describeNodeFilePath(config.graphSrc, id)}.`
+      );
+    }
     if (!hasImplementation) {
       throw new SailError(
         `Found tests for missing node ${id}.\n` +
-          `What to do: add node ${id}, or remove the orphaned tests at ${getSpecPathFromId(config.graphSrc, id)}.`
+          `What to do: add node ${id}, or remove the orphaned tests at ${describeSpecFilePath(config.graphSrc, id)}.`
+      );
+    }
+
+    if (tests.has(id)) {
+      throw new SailError(
+        `Found multiple test files for node ${id}.\n` +
+          `What to do: keep a single test file at ${describeSpecFilePath(config.graphSrc, id)}.`
       );
     }
 
     tests.set(id, {
       absPath: sourceFile.getFilePath(),
       id,
-      pathFromRoot: getSpecPathFromId(config.graphSrc, id),
+      pathFromRoot: path.relative(projectRoot, sourceFile.getFilePath()),
       source: sourceFile.getFullText()
     });
   }

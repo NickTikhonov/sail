@@ -2,6 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import SailError from "./SailError.js";
 import readSailConfig from "./readSailConfig.js";
+import {
+  collectManagedTypeScriptFiles,
+  describeSpecFilePath,
+  inferSpecFileSuffix,
+  isSpecFilePath,
+  resolveSpecFilePaths,
+  stripSpecFileExtension
+} from "./typescriptFiles.js";
 
 export type TestFile = {
   absPath: string;
@@ -14,17 +22,30 @@ export function toResolvedNodeId(id: string): string {
   return id === "main" ? "index" : id;
 }
 
-export function isSpecFilePath(filePath: string): boolean {
-  return filePath.endsWith(".spec.ts");
+export function getSpecPathFromId(
+  graphSrc: string,
+  id: string,
+  suffix: ".spec.ts" | ".spec.tsx" = ".spec.ts"
+): string {
+  return path.join(graphSrc, `${toResolvedNodeId(id)}${suffix}`);
 }
 
-export function getSpecPathFromId(graphSrc: string, id: string): string {
-  return path.join(graphSrc, `${toResolvedNodeId(id)}.spec.ts`);
-}
-
-export async function getSpecPath(projectRoot: string, id: string): Promise<string> {
+export async function getSpecPath(projectRoot: string, id: string, sourceText?: string): Promise<string> {
   const config = await readSailConfig(projectRoot);
-  return path.join(config.graphSrcDir, `${toResolvedNodeId(id)}.spec.ts`);
+  const resolvedId = toResolvedNodeId(id);
+  const matches = await resolveSpecFilePaths(config.graphSrcDir, resolvedId);
+  if (matches.length > 1) {
+    throw new SailError(
+      `Found multiple test files for node ${resolvedId}.\n` +
+        `What to do: keep a single test file at ${describeSpecFilePath(config.graphSrc, resolvedId)}.`
+    );
+  }
+
+  if (matches.length === 1) {
+    return matches[0]!;
+  }
+
+  return path.join(config.graphSrcDir, `${resolvedId}${inferSpecFileSuffix(sourceText ?? "")}`);
 }
 
 export async function pathExists(targetPath: string): Promise<boolean> {
@@ -39,8 +60,16 @@ export async function pathExists(targetPath: string): Promise<boolean> {
 export async function readSpecFile(projectRoot: string, id: string): Promise<TestFile> {
   const config = await readSailConfig(projectRoot);
   const resolvedId = toResolvedNodeId(id);
-  const absPath = path.join(config.graphSrcDir, `${resolvedId}.spec.ts`);
-  if (!(await pathExists(absPath))) {
+  const matches = await resolveSpecFilePaths(config.graphSrcDir, resolvedId);
+  if (matches.length > 1) {
+    throw new SailError(
+      `Found multiple test files for node ${resolvedId}.\n` +
+        `What to do: keep a single test file at ${describeSpecFilePath(config.graphSrc, resolvedId)}.`
+    );
+  }
+
+  const absPath = matches[0];
+  if (!absPath || !(await pathExists(absPath))) {
     throw new SailError(
       `Could not find tests for node ${resolvedId}.\n` +
         `What to do: create them with \`sail test write ${resolvedId}\`.`
@@ -50,27 +79,11 @@ export async function readSpecFile(projectRoot: string, id: string): Promise<Tes
   return {
     absPath,
     id: resolvedId,
-    pathFromRoot: getSpecPathFromId(config.graphSrc, resolvedId),
+    pathFromRoot: path.relative(projectRoot, absPath),
     source: await fs.readFile(absPath, "utf8")
   };
 }
 
 export async function collectTypeScriptFiles(srcDir: string): Promise<string[]> {
-  const entries = await fs.readdir(srcDir, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const absPath = path.join(srcDir, entry.name);
-      if (entry.isDirectory()) {
-        return collectTypeScriptFiles(absPath);
-      }
-
-      if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
-        return [];
-      }
-
-      return [absPath];
-    })
-  );
-
-  return files.flat().sort();
+  return collectManagedTypeScriptFiles(srcDir);
 }

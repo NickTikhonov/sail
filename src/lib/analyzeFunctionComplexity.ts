@@ -1,8 +1,9 @@
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { inferTypeScriptExtension } from "./typescriptFiles.js";
 
 export default function analyzeFunctionComplexity(sourceText: string): number {
   const project = new Project({ useInMemoryFileSystem: true });
-  const sourceFile = project.createSourceFile("node.ts", sourceText);
+  const sourceFile = project.createSourceFile(`node${inferTypeScriptExtension(sourceText)}`, sourceText);
 
   const score =
     1 +

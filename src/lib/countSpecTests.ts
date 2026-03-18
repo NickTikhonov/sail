@@ -1,4 +1,5 @@
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { inferSpecFileSuffix } from "./typescriptFiles.js";
 
 function isActiveTestCall(expression: Node): boolean {
   if (Node.isIdentifier(expression)) {
@@ -20,7 +21,7 @@ function isActiveTestCall(expression: Node): boolean {
 
 export default function countSpecTests(sourceText: string): number {
   const project = new Project({ useInMemoryFileSystem: true });
-  const sourceFile = project.createSourceFile("node.spec.ts", sourceText);
+  const sourceFile = project.createSourceFile(`node${inferSpecFileSuffix(sourceText)}`, sourceText);
 
   return sourceFile
     .getDescendantsOfKind(SyntaxKind.CallExpression)

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ts } from "ts-morph";
 import SailError from "./SailError.js";
 
 function createProjectHelpTemplate(graphSrc: string): string {
@@ -48,20 +49,29 @@ function createSailConfig(graphSrc: string): string {
   return `${JSON.stringify({ graphSrc }, null, 2)}\n`;
 }
 
-const INDEX_TEMPLATE = `declare const process: {
+const MAIN_INDEX_TEMPLATE = `declare const process: {
   exit(code: number): never;
 };
 
+type SailConsole = {
+  error(...args: unknown[]): void;
+  log(...args: unknown[]): void;
+};
+
 export default async function main() {
-  console.log("hello from sail");
+  (globalThis as { console?: SailConsole }).console?.log("hello from sail");
 }
 
 try {
   await main();
 } catch (error) {
-  console.error(error);
+  (globalThis as { console?: SailConsole }).console?.error(error);
   process.exit(1);
 }
+`;
+
+const PUBLIC_INDEX_TEMPLATE = `// Re-export sail nodes from this file for use outside the sail graph.
+export {};
 `;
 
 function toPackageName(projectRoot: string): string {
@@ -103,14 +113,19 @@ function createTsconfig(graphSrc: string): string {
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "jsx": "preserve",
     "lib": ["ES2022"],
     "types": ["node"],
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["${path.posix.join(...graphSrc.split(path.sep), "**/*.ts")}"]
+  "include": ["${path.posix.join(...graphSrc.split(path.sep), "**/*.ts")}", "${path.posix.join(...graphSrc.split(path.sep), "**/*.tsx")}"]
 }
 `;
+}
+
+function createIndexTemplate(publicSurface: boolean): string {
+  return publicSurface ? PUBLIC_INDEX_TEMPLATE : MAIN_INDEX_TEMPLATE;
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -125,6 +140,59 @@ async function pathExists(targetPath: string): Promise<boolean> {
 async function writeFile(targetPath: string, contents: string): Promise<void> {
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, contents, "utf8");
+}
+
+async function mergeTsconfigIfNeeded(tsconfigPath: string, graphSrc: string): Promise<"created" | "merged" | "unchanged"> {
+  if (!(await pathExists(tsconfigPath))) {
+    await writeFile(tsconfigPath, createTsconfig(graphSrc));
+    return "created";
+  }
+
+  const existingText = await fs.readFile(tsconfigPath, "utf8");
+  const parsed = ts.parseConfigFileTextToJson(tsconfigPath, existingText);
+  if (parsed.error) {
+    const message = ts.formatDiagnosticsWithColorAndContext([parsed.error], {
+      getCanonicalFileName: (fileName) => fileName,
+      getCurrentDirectory: () => process.cwd(),
+      getNewLine: () => "\n"
+    });
+    throw new SailError(
+      `Could not parse the existing tsconfig.json.\n` +
+        `What to do: fix tsconfig.json before running \`sail init\`.\n${message}`
+    );
+  }
+
+  const config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
+  const includePatterns = Array.isArray(config.include) ? [...config.include] : null;
+  const requiredPatterns = [`${graphSrc}/**/*.ts`, `${graphSrc}/**/*.tsx`];
+  let changed = false;
+
+  if (includePatterns) {
+    const nextIncludePatterns = [...includePatterns];
+    for (const requiredPattern of requiredPatterns) {
+      if (!nextIncludePatterns.includes(requiredPattern)) {
+        nextIncludePatterns.push(requiredPattern);
+        changed = true;
+      }
+    }
+    config.include = nextIncludePatterns;
+  }
+
+  if (!config.compilerOptions || typeof config.compilerOptions !== "object") {
+    config.compilerOptions = {};
+  }
+
+  if (config.compilerOptions.jsx === undefined) {
+    config.compilerOptions.jsx = "preserve";
+    changed = true;
+  }
+
+  if (changed) {
+    await writeFile(tsconfigPath, `${JSON.stringify(config, null, 2)}\n`);
+    return "merged";
+  }
+
+  return "unchanged";
 }
 
 function resolveInitTarget(projectRoot: string, projectName?: string): { createdDirectory: boolean; targetRoot: string } {
@@ -169,21 +237,22 @@ export default async function initProject(
   projectName?: string
 ): Promise<{ projectRoot: string; stdout: string }> {
   const target = resolveInitTarget(projectRoot, projectName);
+  const packageJsonPath = path.join(target.targetRoot, "package.json");
+  const tsconfigPath = path.join(target.targetRoot, "tsconfig.json");
+  const hasExistingPackageJson = await pathExists(packageJsonPath);
+  const hasExistingTsConfig = await pathExists(tsconfigPath);
+  const isEmbeddedProject = hasExistingPackageJson || hasExistingTsConfig;
   const srcDir = path.join(target.targetRoot, "src");
   const defaultGraphSrc = ((await pathExists(srcDir)) ? path.join("src", "sail") : "sail").replaceAll("\\", "/");
   const graphSrcDir = path.join(target.targetRoot, defaultGraphSrc);
   const configPath = path.join(target.targetRoot, "sail.config.json");
   const indexPath = path.join(graphSrcDir, "index.ts");
-  const packageJsonPath = path.join(target.targetRoot, "package.json");
-  const tsconfigPath = path.join(target.targetRoot, "tsconfig.json");
   const docsHelpPath = path.join(target.targetRoot, "docs", "sail-help.md");
   const claudePath = path.join(target.targetRoot, "CLAUDE.md");
   const claudeSettingsPath = path.join(target.targetRoot, ".claude", "settings.local.json");
   const canMergeClaude = !target.createdDirectory && (await pathExists(claudePath));
   const targetPaths = [
     configPath,
-    packageJsonPath,
-    tsconfigPath,
     indexPath,
     docsHelpPath,
     claudeSettingsPath
@@ -208,9 +277,11 @@ export default async function initProject(
 
   await fs.mkdir(graphSrcDir, { recursive: true });
   await writeFile(configPath, createSailConfig(defaultGraphSrc));
-  await writeFile(packageJsonPath, createPackageJson(target.targetRoot, defaultGraphSrc));
-  await writeFile(tsconfigPath, createTsconfig(defaultGraphSrc));
-  await writeFile(indexPath, INDEX_TEMPLATE);
+  if (!hasExistingPackageJson) {
+    await writeFile(packageJsonPath, createPackageJson(target.targetRoot, defaultGraphSrc));
+  }
+  const tsconfigStatus = await mergeTsconfigIfNeeded(tsconfigPath, defaultGraphSrc);
+  await writeFile(indexPath, createIndexTemplate(isEmbeddedProject));
   await writeFile(docsHelpPath, createProjectHelpTemplate(defaultGraphSrc));
   const claudeTemplate = createClaudeTemplate(defaultGraphSrc);
   if (canMergeClaude) {
@@ -228,8 +299,16 @@ export default async function initProject(
   const lines = [
     header,
     `- ${path.relative(target.targetRoot, configPath) || "sail.config.json"}`,
-    `- ${path.relative(target.targetRoot, packageJsonPath) || "package.json"}`,
-    `- ${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"}`,
+    `- ${
+      hasExistingPackageJson
+        ? `${path.relative(target.targetRoot, packageJsonPath) || "package.json"} (kept existing)`
+        : path.relative(target.targetRoot, packageJsonPath) || "package.json"
+    }`,
+    `- ${
+      tsconfigStatus === "created"
+        ? path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"
+        : `${path.relative(target.targetRoot, tsconfigPath) || "tsconfig.json"} (${tsconfigStatus})`
+    }`,
     `- ${path.relative(target.targetRoot, indexPath) || path.join(defaultGraphSrc, "index.ts")}`,
     `- ${path.relative(target.targetRoot, docsHelpPath) || "docs/sail-help.md"}`,
     `- ${path.relative(target.targetRoot, claudePath) || "CLAUDE.md"}`,

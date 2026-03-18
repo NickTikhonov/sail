@@ -91,6 +91,82 @@ async function initProject(testContext, options = {}) {
   };
 }
 
+async function createNextStyleProject(testContext) {
+  const context = await createTempProject(testContext);
+  await fs.mkdir(path.join(context.projectRoot, "app"), { recursive: true });
+
+  await fs.writeFile(
+    path.join(context.projectRoot, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "next-style-project",
+        private: true,
+        dependencies: {
+          next: "latest",
+          react: "latest",
+          "react-dom": "latest"
+        },
+        scripts: {
+          dev: "next dev",
+          build: "next build",
+          start: "next start"
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  await fs.writeFile(
+    path.join(context.projectRoot, "tsconfig.json"),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: "ES2017",
+          lib: ["dom", "dom.iterable", "esnext"],
+          allowJs: true,
+          skipLibCheck: true,
+          strict: true,
+          noEmit: true,
+          esModuleInterop: true,
+          module: "esnext",
+          moduleResolution: "bundler",
+          resolveJsonModule: true,
+          isolatedModules: true,
+          jsx: "preserve",
+          incremental: true,
+          plugins: [{ name: "next" }]
+        },
+        include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+        exclude: ["node_modules"]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  await fs.writeFile(
+    path.join(context.projectRoot, "next-env.d.ts"),
+    '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n',
+    "utf8"
+  );
+
+  await fs.writeFile(
+    path.join(context.projectRoot, "app", "page.tsx"),
+    [
+      "export default function Page() {",
+      '  return <main>Hello from Next</main>;',
+      "}",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  return context;
+}
+
 async function writeNode(projectRoot, homeDir, id, source) {
   return runCli(projectRoot, ["write", id], {
     homeDir,
@@ -108,6 +184,7 @@ async function writeTest(projectRoot, homeDir, id, source) {
 module.exports = {
   CLI_PATH,
   createTempProject,
+  createNextStyleProject,
   getGraphRoot,
   initProject,
   readJson,

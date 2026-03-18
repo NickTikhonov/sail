@@ -4,8 +4,14 @@ import path from "node:path";
 import { Node, Project, SyntaxKind, ts } from "ts-morph";
 import SailError from "./SailError.js";
 import readSailConfig from "./readSailConfig.js";
+import {
+  collectManagedTypeScriptFiles,
+  describeNodeFilePath,
+  isNodeFilePath,
+  stripNodeFileExtension
+} from "./typescriptFiles.js";
 
-type NodeKind = "const" | "function" | "main" | "type";
+type NodeKind = "const" | "function" | "main" | "surface" | "type";
 
 type GraphNode = {
   absPath: string;
@@ -43,6 +49,14 @@ type ClassifiedExport = {
   name: string;
 };
 
+const JSX_SHIM_SOURCE = `declare namespace JSX {
+  interface Element {}
+  interface IntrinsicElements {
+    [elementName: string]: unknown;
+  }
+}
+`;
+
 function isLocalImport(moduleSpecifier: string): boolean {
   return moduleSpecifier.startsWith(".");
 }
@@ -52,33 +66,26 @@ function hashText(value: string): string {
 }
 
 async function collectSourceFiles(srcDir: string): Promise<string[]> {
-  const entries = await fs.readdir(srcDir, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const absPath = path.join(srcDir, entry.name);
-      if (entry.isDirectory()) {
-        return collectSourceFiles(absPath);
-      }
-
-      if (
-        !entry.isFile() ||
-        !entry.name.endsWith(".ts") ||
-        entry.name.endsWith(".d.ts") ||
-        entry.name.endsWith(".spec.ts")
-      ) {
-        return [];
-      }
-
-      return [absPath];
-    })
-  );
-
-  return files.flat().sort();
+  return (await collectManagedTypeScriptFiles(srcDir)).filter((filePath) => isNodeFilePath(filePath));
 }
 
 function getTopLevelExecutableStatements(sourceFilePath: string, statements: Node<ts.Node>[]): string[] {
+  let directivePrologueOpen = true;
   return statements
     .filter((statement) => {
+      if (
+        directivePrologueOpen &&
+        Node.isExpressionStatement(statement) &&
+        (() => {
+          const expression = statement.getExpression();
+          return Node.isStringLiteral(expression) || Node.isNoSubstitutionTemplateLiteral(expression);
+        })()
+      ) {
+        return false;
+      }
+
+      directivePrologueOpen = false;
+
       if (
         Node.isImportDeclaration(statement) ||
         Node.isExportDeclaration(statement) ||
@@ -100,10 +107,41 @@ function getTopLevelExecutableStatements(sourceFilePath: string, statements: Nod
     .map((statement) => statement.getKindName());
 }
 
+function isIndexPublicSurface(sourceFile: import("ts-morph").SourceFile, fileId: string): boolean {
+  if (fileId !== "index") {
+    return false;
+  }
+
+  const hasDefaultFunction = sourceFile.getFunctions().some((declaration) => declaration.isDefaultExport());
+  const hasDefaultInterface = sourceFile.getInterfaces().some((declaration) => declaration.isDefaultExport());
+  const hasExportAssignment = sourceFile.getExportAssignments().length > 0;
+  if (hasDefaultFunction || hasDefaultInterface || hasExportAssignment) {
+    return false;
+  }
+
+  return sourceFile.getExportDeclarations().length > 0;
+}
+
 function validateOnlyDefaultExportSurface(sourceFile: import("ts-morph").SourceFile, fileId: string): void {
+  const fileLabel = sourceFile.getBaseName();
+  if (isIndexPublicSurface(sourceFile, fileId)) {
+    const hasNamedFunctionExport = sourceFile.getFunctions().some((declaration) => declaration.hasExportKeyword());
+    const hasNamedInterfaceExport = sourceFile.getInterfaces().some((declaration) => declaration.hasExportKeyword());
+    const hasNamedVariableExport = sourceFile
+      .getVariableStatements()
+      .some((statement) => statement.hasExportKeyword());
+    if (hasNamedFunctionExport || hasNamedInterfaceExport || hasNamedVariableExport) {
+      throw new SailError(
+        `The public surface in index.ts must use re-exports only.\n` +
+          `What to do: re-export sail nodes from \`index.ts\` using statements like \`export { default as foo } from "./foo"\`.`
+      );
+    }
+    return;
+  }
+
   if (sourceFile.getExportDeclarations().length > 0) {
     throw new SailError(
-      `Named export declarations are not allowed in ${fileId}.ts.\n` +
+      `Named export declarations are not allowed in ${fileLabel}.\n` +
         `What to do: keep one public node per file and expose it only through the single default export.`
     );
   }
@@ -113,7 +151,7 @@ function validateOnlyDefaultExportSurface(sourceFile: import("ts-morph").SourceF
     .some((declaration) => declaration.hasExportKeyword() && !declaration.isDefaultExport());
   if (hasNamedFunctionExport) {
     throw new SailError(
-      `Named function exports are not allowed in ${fileId}.ts.\n` +
+      `Named function exports are not allowed in ${fileLabel}.\n` +
         `What to do: keep one public node per file and expose it only through the single default export.`
     );
   }
@@ -123,7 +161,7 @@ function validateOnlyDefaultExportSurface(sourceFile: import("ts-morph").SourceF
     .some((declaration) => declaration.hasExportKeyword() && !declaration.isDefaultExport());
   if (hasNamedInterfaceExport) {
     throw new SailError(
-      `Named interface exports are not allowed in ${fileId}.ts.\n` +
+      `Named interface exports are not allowed in ${fileLabel}.\n` +
         `What to do: keep one public node per file and expose it only through the single default export.`
     );
   }
@@ -133,19 +171,27 @@ function validateOnlyDefaultExportSurface(sourceFile: import("ts-morph").SourceF
     .some((statement) => statement.hasExportKeyword());
   if (hasNamedVariableExport) {
     throw new SailError(
-      `Named variable exports are not allowed in ${fileId}.ts.\n` +
+      `Named variable exports are not allowed in ${fileLabel}.\n` +
         `What to do: keep one public node per file and expose it only through the single default export.`
     );
   }
 }
 
 function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: string): ClassifiedExport {
+  const fileLabel = sourceFile.getBaseName();
+  if (isIndexPublicSurface(sourceFile, fileId)) {
+    return {
+      kind: "surface",
+      name: "index"
+    };
+  }
+
   for (const declaration of sourceFile.getFunctions()) {
     if (declaration.isDefaultExport()) {
       const name = declaration.getName();
       if (!name) {
         throw new SailError(
-          `Default-exported function in ${fileId}.ts must be named.\n` +
+          `Default-exported function in ${fileLabel} must be named.\n` +
             `What to do: export a named function whose name matches the filename.`
         );
       }
@@ -162,7 +208,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
       const name = declaration.getName();
       if (!name) {
         throw new SailError(
-          `Default-exported interface in ${fileId}.ts must be named.\n` +
+          `Default-exported interface in ${fileLabel} must be named.\n` +
             `What to do: export a named interface whose name matches the filename.`
         );
       }
@@ -177,7 +223,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
   for (const declaration of sourceFile.getTypeAliases()) {
     if (declaration.hasExportKeyword()) {
       throw new SailError(
-        `Type aliases in ${fileId}.ts cannot be default exported in TypeScript.\n` +
+        `Type aliases in ${fileLabel} cannot be default exported in TypeScript.\n` +
           `What to do: use a default-exported interface for MVP type nodes.`
       );
     }
@@ -186,7 +232,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
   for (const exportAssignment of sourceFile.getExportAssignments()) {
     if (exportAssignment.isExportEquals()) {
       throw new SailError(
-        `CommonJS export assignment is not allowed in ${fileId}.ts.\n` +
+        `CommonJS export assignment is not allowed in ${fileLabel}.\n` +
           `What to do: use ESM default export syntax instead.`
       );
     }
@@ -194,7 +240,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
     const expression = exportAssignment.getExpression();
     if (!Node.isIdentifier(expression)) {
       throw new SailError(
-        `Default export in ${fileId}.ts must reference a named symbol.\n` +
+        `Default export in ${fileLabel} must reference a named symbol.\n` +
           `What to do: declare a local named function, const, or interface and default export that symbol.`
       );
     }
@@ -206,7 +252,7 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
       const declarationKind = variableStatement?.getDeclarationKind();
       if (declarationKind !== "const") {
         throw new SailError(
-          `Default-exported variable in ${fileId}.ts must be declared with const.\n` +
+          `Default-exported variable in ${fileLabel} must be declared with const.\n` +
             `What to do: replace let/var with const.`
         );
       }
@@ -234,13 +280,13 @@ function classifyExport(sourceFile: import("ts-morph").SourceFile, fileId: strin
     }
 
     throw new SailError(
-      `Default export in ${fileId}.ts must reference a local function or const.\n` +
+      `Default export in ${fileLabel} must reference a local function or const.\n` +
         `What to do: define the symbol in the same file, then default export it.`
     );
   }
 
   throw new SailError(
-    `Expected exactly one default export in ${fileId}.ts.\n` +
+    `Expected exactly one default export in ${fileLabel}.\n` +
       `What to do: keep one public node per file and export it as the single default export.`
   );
 }
@@ -284,12 +330,12 @@ function validateDiagnostics(project: Project, validateTypes: boolean): void {
 }
 
 function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile, graphSrc: string): void {
-  const fileId = path.basename(sourceFile.getBaseName(), ".ts");
+  const fileId = stripNodeFileExtension(sourceFile.getBaseName());
   const statements = sourceFile.getStatements();
   const executableStatements = getTopLevelExecutableStatements(sourceFile.getFilePath(), statements);
   if (executableStatements.length > 0) {
     throw new SailError(
-      `Top-level executable statements are not allowed in ${fileId}.ts: ${executableStatements.join(", ")}.\n` +
+      `Top-level executable statements are not allowed in ${sourceFile.getBaseName()}: ${executableStatements.join(", ")}.\n` +
         `What to do: pass a full valid node file to \`write\`, not raw text. Keep top-level code to declarations only. ` +
         `The only exception is \`${path.join(graphSrc, "index.ts")}\`, which may invoke \`main()\` inside a local try/catch block.`
     );
@@ -298,6 +344,10 @@ function validateIndexSourceFile(sourceFile: import("ts-morph").SourceFile, grap
   validateOnlyDefaultExportSurface(sourceFile, fileId);
 
   const classified = classifyExport(sourceFile, fileId);
+  if (classified.kind === "surface") {
+    return;
+  }
+
   if (classified.kind !== "main") {
     return;
   }
@@ -391,6 +441,7 @@ export default async function buildProjectState(
 
   const project = new Project({
     compilerOptions: {
+      jsx: ts.JsxEmit.Preserve,
       module: ts.ModuleKind.NodeNext,
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       target: ts.ScriptTarget.ES2022
@@ -399,6 +450,7 @@ export default async function buildProjectState(
   });
 
   const sourceFiles = files.map((filePath) => project.addSourceFileAtPath(filePath));
+  project.createSourceFile("__sail_jsx_shim.d.ts", JSX_SHIM_SOURCE, { overwrite: true });
 
   for (const sourceFile of sourceFiles) {
     ensureOnlyStaticImports(sourceFile);
@@ -407,11 +459,25 @@ export default async function buildProjectState(
 
   validateDiagnostics(project, options.validateTypes ?? false);
 
+  const idToPaths = new Map<string, string[]>();
+  for (const filePath of files) {
+    const id = stripNodeFileExtension(path.basename(filePath));
+    idToPaths.set(id, [...(idToPaths.get(id) ?? []), filePath]);
+  }
+  for (const [id, matchingPaths] of idToPaths.entries()) {
+    if (matchingPaths.length > 1) {
+      throw new SailError(
+        `Found multiple implementation files for node ${id}.\n` +
+          `What to do: keep a single node file at ${describeNodeFilePath(config.graphSrc, id)}.`
+      );
+    }
+  }
+
   const nodes = new Map<string, GraphNode>();
   const reverseEdges = new Map<string, Set<string>>();
 
   for (const sourceFile of sourceFiles) {
-    const id = path.basename(sourceFile.getBaseName(), ".ts");
+    const id = stripNodeFileExtension(sourceFile.getBaseName());
     const classified = classifyExport(sourceFile, id);
     if (classified.name !== id && !(id === "index" && classified.name === "main")) {
       throw new SailError(
@@ -420,13 +486,23 @@ export default async function buildProjectState(
       );
     }
 
-    const imports = sourceFile.getImportDeclarations().flatMap((declaration) => {
-      const moduleSpecifier = declaration.getModuleSpecifierValue();
+    const imports = [
+      ...sourceFile.getImportDeclarations().map((declaration) => ({
+        moduleSpecifier: declaration.getModuleSpecifierValue(),
+        targetSourceFile: declaration.getModuleSpecifierSourceFile()
+      })),
+      ...sourceFile
+        .getExportDeclarations()
+        .filter((declaration) => declaration.getModuleSpecifierValue())
+        .map((declaration) => ({
+          moduleSpecifier: declaration.getModuleSpecifierValue(),
+          targetSourceFile: declaration.getModuleSpecifierSourceFile()
+        }))
+    ].flatMap(({ moduleSpecifier, targetSourceFile }) => {
       if (!isLocalImport(moduleSpecifier)) {
         return [];
       }
 
-      const targetSourceFile = declaration.getModuleSpecifierSourceFile();
       if (!targetSourceFile) {
         throw new SailError(
           `Local import ${moduleSpecifier} in ${sourceFile.getBaseName()} does not resolve to a project file.\n` +
@@ -442,7 +518,7 @@ export default async function buildProjectState(
         );
       }
 
-      return [path.basename(targetSourceFile.getBaseName(), ".ts")];
+      return [stripNodeFileExtension(targetSourceFile.getBaseName())];
     });
 
     const node: GraphNode = {
@@ -466,7 +542,7 @@ export default async function buildProjectState(
       if (!target) {
         throw new SailError(
           `Node ${node.id} imports missing local node ${importedId}.\n` +
-            `What to do: add \`${path.join(config.graphSrc, `${importedId}.ts`)}\` or fix the import path.`
+            `What to do: add \`${describeNodeFilePath(config.graphSrc, importedId)}\` or fix the import path.`
         );
       }
 

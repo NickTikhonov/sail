@@ -32,6 +32,32 @@ function specSource(id) {
   ].join("\n");
 }
 
+function componentNodeSource(id) {
+  return [
+    '"use client";',
+    "",
+    `export default function ${id}() {`,
+    `  return <main>${id}</main>;`,
+    "}",
+    ""
+  ].join("\n");
+}
+
+function componentSpecSource(id) {
+  return [
+    'import { describe, expect, it } from "vitest";',
+    `import ${id} from "./${id}";`,
+    "",
+    `describe("${id}", () => {`,
+    '  it("renders JSX", () => {',
+    `    const view = <${id} />;`,
+    "    expect(view).toBeTruthy();",
+    "  });",
+    "});",
+    ""
+  ].join("\n");
+}
+
 test("help explains config-driven graph roots and test commands", async (t) => {
   const { homeDir, projectRoot } = await initProject(t);
   const result = await runCli(projectRoot, ["help"], { homeDir });
@@ -40,7 +66,7 @@ test("help explains config-driven graph roots and test commands", async (t) => {
   assert.match(result.stdout, /sail\.config\.json/);
   assert.match(result.stdout, /graphSrc/);
   assert.match(result.stdout, /sail test read\|write\|patch <id>/);
-  assert.match(result.stdout, /<graphSrc>\/<id>\.ts/);
+  assert.match(result.stdout, /<graphSrc>\/<id>\.ts.*<graphSrc>\/<id>\.tsx/);
 });
 
 test("write without stdin fails with full-file guidance", async (t) => {
@@ -169,4 +195,34 @@ test("filename and exported symbol must match", async (t) => {
 
   assert.equal(result.code, 1);
   assert.match(result.stderr, /Filename and exported symbol must match in wrongName\.ts/);
+});
+
+test("write infers .tsx for JSX nodes and test write supports .spec.tsx without explicit extensions", async (t) => {
+  const { homeDir, projectRoot } = await initProject(t);
+  const { graphRoot } = await getGraphRoot(projectRoot);
+
+  const componentWrite = await writeNode(projectRoot, homeDir, "GreetingCard", componentNodeSource("GreetingCard"));
+  assert.equal(componentWrite.code, 0);
+  assert.match(componentWrite.stdout, /created .*GreetingCard\.tsx/);
+  await fs.access(path.join(graphRoot, "GreetingCard.tsx"));
+
+  const indexWrite = await writeNode(
+    projectRoot,
+    homeDir,
+    "index",
+    'export { default as GreetingCard } from "./GreetingCard";\n'
+  );
+  assert.equal(indexWrite.code, 0);
+
+  const readIndex = await runCli(projectRoot, ["read", "index"], { homeDir });
+  assert.equal(readIndex.code, 0);
+  assert.match(readIndex.stdout, /export \{ default as GreetingCard \} from "\.\/GreetingCard";/);
+
+  const testWrite = await writeTest(projectRoot, homeDir, "GreetingCard", componentSpecSource("GreetingCard"));
+  assert.equal(testWrite.code, 0);
+  await fs.access(path.join(graphRoot, "GreetingCard.spec.tsx"));
+
+  const readTest = await runCli(projectRoot, ["test", "read", "GreetingCard"], { homeDir });
+  assert.equal(readTest.code, 0);
+  assert.match(readTest.stdout, /GreetingCard\.spec\.tsx/);
 });

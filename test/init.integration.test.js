@@ -22,7 +22,7 @@ test("init defaults graphSrc to src/sail when src already exists", async (t) => 
   await fs.access(graphRoot);
   await fs.access(indexPath);
   assert.equal(packageJson.scripts.dev, "tsx src/sail/index.ts");
-  assert.deepEqual(tsconfig.include, ["src/sail/**/*.ts"]);
+  assert.deepEqual(tsconfig.include, ["src/sail/**/*.ts", "src/sail/**/*.tsx"]);
 });
 
 test("init defaults graphSrc to sail when src does not exist", async (t) => {
@@ -42,7 +42,7 @@ test("init defaults graphSrc to sail when src does not exist", async (t) => {
   await fs.access(graphRoot);
   await fs.access(indexPath);
   assert.equal(packageJson.scripts.dev, "tsx sail/index.ts");
-  assert.deepEqual(tsconfig.include, ["sail/**/*.ts"]);
+  assert.deepEqual(tsconfig.include, ["sail/**/*.ts", "sail/**/*.tsx"]);
 });
 
 test("init with a project name creates and initializes that directory", async (t) => {
@@ -60,7 +60,7 @@ test("init with a project name creates and initializes that directory", async (t
   assert.equal(config.graphSrc, "sail");
   await fs.access(path.join(childRoot, "sail", "index.ts"));
   assert.equal(packageJson.scripts.dev, "tsx sail/index.ts");
-  assert.deepEqual(tsconfig.include, ["sail/**/*.ts"]);
+  assert.deepEqual(tsconfig.include, ["sail/**/*.ts", "sail/**/*.tsx"]);
 });
 
 test("init prepends sail guidance into an existing CLAUDE.md in the current directory", async (t) => {

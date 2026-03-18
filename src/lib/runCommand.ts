@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { applyPatch, parsePatch } from "diff";
 import SailError from "./SailError.js";
+import analyzeImportBoundaryDebt, {
+  type ImportBoundaryDebtEntry
+} from "./analyzeImportBoundaryDebt.js";
+import analyzeNextAdapterDebt, { type NextAdapterDebtEntry } from "./analyzeNextAdapterDebt.js";
 import analyzeTestDebt, { type TestDebtEntry } from "./analyzeTestDebt.js";
 import analyzeFunctionComplexity from "./analyzeFunctionComplexity.js";
 import buildProjectState from "./buildProjectState.js";
@@ -10,6 +14,11 @@ import countSpecTests from "./countSpecTests.js";
 import initProject from "./initProject.js";
 import runTargetSpec from "./runTargetSpec.js";
 import { getSpecPath, readSpecFile } from "./testFiles.js";
+import {
+  describeNodeFilePath,
+  inferSpecFileSuffix,
+  inferTypeScriptExtension
+} from "./typescriptFiles.js";
 
 type ProjectState = Awaited<ReturnType<typeof buildProjectState>>;
 type GraphNode = ProjectState["nodes"] extends Map<string, infer NodeType> ? NodeType : never;
@@ -105,7 +114,7 @@ function getNodeOrThrow(projectState: ProjectState, id: string): GraphNode {
   if (!node) {
     throw new SailError(
       `Could not find node ${id}.\n` +
-        `What to do: run \`sail query ${id}\` to find similar node ids, or create \`${path.join(projectState.graphSrc, `${resolvedId}.ts`)}\` as a valid node file.`
+        `What to do: run \`sail query ${id}\` to find similar node ids, or create \`${describeNodeFilePath(projectState.graphSrc, resolvedId)}\` as a valid node file.`
     );
   }
 
@@ -198,6 +207,67 @@ function renderDebtWarnings(debtEntries: TestDebtEntry[]): string[] {
   return lines;
 }
 
+function formatImportBoundaryDebtEntry(entry: ImportBoundaryDebtEntry): string {
+  return `${entry.importerPath} -> ${entry.targetPath}`;
+}
+
+function renderImportBoundaryWarnings(
+  entries: ImportBoundaryDebtEntry[],
+  publicIndexPath: string
+): string[] {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    `WARNING: Architecture debt is open for ${entries.length} import violation${entries.length === 1 ? "" : "s"}.`
+  ];
+
+  entries.slice(0, 5).forEach((entry) => {
+    lines.push(
+      `WARNING: ${entry.importerPath} imports sail internals directly from ${entry.targetPath}.`
+    );
+  });
+
+  if (entries.length > 5) {
+    lines.push(`WARNING: ${entries.length - 5} more import violations are still open.`);
+  }
+
+  lines.push(
+    `WARNING: Next step: re-export the needed node from \`${publicIndexPath}\` and update outside imports to use that public index file.`
+  );
+
+  return lines;
+}
+
+function formatNextAdapterDebtEntry(entry: NextAdapterDebtEntry): string {
+  return entry.filePath;
+}
+
+function renderNextAdapterWarnings(entries: NextAdapterDebtEntry[], publicIndexPath: string): string[] {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    `WARNING: Next adapter debt is open for ${entries.length} file${entries.length === 1 ? "" : "s"}.`
+  ];
+
+  entries.slice(0, 5).forEach((entry) => {
+    lines.push(`WARNING: ${entry.filePath} should be a pure re-export stub from ${publicIndexPath}.`);
+  });
+
+  if (entries.length > 5) {
+    lines.push(`WARNING: ${entries.length - 5} more adapter files still need cleanup.`);
+  }
+
+  lines.push(
+    `WARNING: Next step: move the local component logic into sail nodes, export the public entry from \`${publicIndexPath}\`, and make the adapter file re-export it.`
+  );
+
+  return lines;
+}
+
 async function assertNoOutstandingTestDebt(projectRoot: string): Promise<void> {
   const projectState = await buildProjectState(projectRoot, { validateTypes: false });
   const debtEntries = await analyzeTestDebt(projectRoot, projectState);
@@ -210,6 +280,54 @@ async function assertNoOutstandingTestDebt(projectRoot: string): Promise<void> {
     `Cannot change implementation nodes while test debt is open.\n` +
       `Outstanding node debt: ${summary}${debtEntries.length > 5 ? ", ..." : ""}.\n` +
       `What to do: write or patch tests for the outstanding nodes first using \`sail test write <id>\` or \`sail test patch <id>\`.`
+  );
+}
+
+async function assertNoOutstandingImportBoundaryDebt(
+  projectRoot: string,
+  publicIndexPath: string
+): Promise<void> {
+  const entries = await analyzeImportBoundaryDebt(projectRoot);
+  if (entries.length === 0) {
+    return;
+  }
+
+  const summary = entries.slice(0, 5).map(formatImportBoundaryDebtEntry).join(", ");
+  throw new SailError(
+    `Cannot change sail implementation nodes while import-boundary debt is open.\n` +
+      `Open import debt: ${summary}${entries.length > 5 ? ", ..." : ""}.\n` +
+      `What to do: re-export the needed node from \`${publicIndexPath}\` and update outside imports to use that public index file first.`
+  );
+}
+
+async function buildImportBoundaryWarnings(projectRoot: string, graphSrc: string): Promise<string[]> {
+  return renderImportBoundaryWarnings(
+    await analyzeImportBoundaryDebt(projectRoot),
+    path.join(graphSrc, "index.ts")
+  );
+}
+
+async function assertNoOutstandingNextAdapterDebt(
+  projectRoot: string,
+  publicIndexPath: string
+): Promise<void> {
+  const entries = await analyzeNextAdapterDebt(projectRoot);
+  if (entries.length === 0) {
+    return;
+  }
+
+  const summary = entries.slice(0, 5).map(formatNextAdapterDebtEntry).join(", ");
+  throw new SailError(
+    `Cannot change sail implementation nodes while Next adapter debt is open.\n` +
+      `Open adapter debt: ${summary}${entries.length > 5 ? ", ..." : ""}.\n` +
+      `What to do: move the local component logic into sail nodes, export the public entry from \`${publicIndexPath}\`, and make those adapter files pure re-export stubs.`
+  );
+}
+
+async function buildNextAdapterWarnings(projectRoot: string, graphSrc: string): Promise<string[]> {
+  return renderNextAdapterWarnings(
+    await analyzeNextAdapterDebt(projectRoot),
+    path.join(graphSrc, "index.ts")
   );
 }
 
@@ -431,7 +549,10 @@ function applyUnifiedDiffPatch(source: string, diffText: string, expectedPath: s
     `b/${expectedFileName}`,
     `${expectedId}.ts`,
     `a/${expectedId}.ts`,
-    `b/${expectedId}.ts`
+    `b/${expectedId}.ts`,
+    `${expectedId}.tsx`,
+    `a/${expectedId}.tsx`,
+    `b/${expectedId}.tsx`
   ]);
 
   if (fileNames.some((fileName) => !allowedNames.has(fileName))) {
@@ -560,7 +681,20 @@ async function buildSpecExecutionWarnings(
 }
 
 async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Promise<CommandResult> {
-  await assertNoOutstandingTestDebt(input.projectRoot);
+  if (input.id !== "index" && input.id !== "main") {
+    await assertNoOutstandingTestDebt(input.projectRoot);
+  }
+  if (input.id !== "index" && input.id !== "main") {
+    const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
+    await assertNoOutstandingImportBoundaryDebt(
+      input.projectRoot,
+      path.join(projectState.graphSrc, "index.ts")
+    );
+    await assertNoOutstandingNextAdapterDebt(
+      input.projectRoot,
+      path.join(projectState.graphSrc, "index.ts")
+    );
+  }
   const hasExactMode = typeof input.find === "string" || typeof input.replace === "string";
   if (input.diff === hasExactMode) {
     throw new SailError(
@@ -604,11 +738,16 @@ async function runPatch(input: Extract<CommandInput, { command: "patch" }>): Pro
             },
             warnings: renderDebtWarnings(await analyzeTestDebt(input.projectRoot, afterState))
           };
+    const importBoundaryWarnings = await buildImportBoundaryWarnings(
+      input.projectRoot,
+      afterState.graphSrc
+    );
+    const nextAdapterWarnings = await buildNextAdapterWarnings(input.projectRoot, afterState.graphSrc);
     return {
       quality: feedback.quality,
       projectState: afterState,
       shouldWriteSnapshot: true,
-      stderr: feedback.warnings.join("\n"),
+      stderr: [...feedback.warnings, ...importBoundaryWarnings, ...nextAdapterWarnings].join("\n"),
       stdout: `patched ${target.pathFromRoot}`,
       touchedNodes: [target.id]
     };
@@ -632,7 +771,9 @@ async function runInit(input: Extract<CommandInput, { command: "init" }>): Promi
 }
 
 async function runWrite(input: Extract<CommandInput, { command: "write" }>): Promise<CommandResult> {
-  await assertNoOutstandingTestDebt(input.projectRoot);
+  if (input.id !== "index" && input.id !== "main") {
+    await assertNoOutstandingTestDebt(input.projectRoot);
+  }
   if (!input.stdin.trim()) {
     throw new SailError(
       `write requires replacement file contents on stdin.\n` +
@@ -642,11 +783,21 @@ async function runWrite(input: Extract<CommandInput, { command: "write" }>): Pro
   }
 
   const beforeState = await buildProjectState(input.projectRoot, { validateTypes: false });
+  if (input.id !== "index" && input.id !== "main") {
+    await assertNoOutstandingImportBoundaryDebt(
+      input.projectRoot,
+      path.join(beforeState.graphSrc, "index.ts")
+    );
+    await assertNoOutstandingNextAdapterDebt(
+      input.projectRoot,
+      path.join(beforeState.graphSrc, "index.ts")
+    );
+  }
   const resolvedId = input.id === "main" ? "index" : input.id;
   const existingTarget = beforeState.nodes.get(resolvedId);
   const targetPath = existingTarget
-    ? path.join(input.projectRoot, existingTarget.pathFromRoot)
-    : path.join(beforeState.graphSrcDir, `${resolvedId}.ts`);
+    ? existingTarget.absPath
+    : path.join(beforeState.graphSrcDir, `${resolvedId}${inferTypeScriptExtension(input.stdin)}`);
   const previousSource = existingTarget?.source ?? null;
 
   await fs.writeFile(targetPath, input.stdin, "utf8");
@@ -664,12 +815,17 @@ async function runWrite(input: Extract<CommandInput, { command: "write" }>): Pro
             },
             warnings: renderDebtWarnings(await analyzeTestDebt(input.projectRoot, afterState))
           };
+    const importBoundaryWarnings = await buildImportBoundaryWarnings(
+      input.projectRoot,
+      afterState.graphSrc
+    );
+    const nextAdapterWarnings = await buildNextAdapterWarnings(input.projectRoot, afterState.graphSrc);
 
     return {
       quality: feedback.quality,
       projectState: afterState,
       shouldWriteSnapshot: true,
-      stderr: feedback.warnings.join("\n"),
+      stderr: [...feedback.warnings, ...importBoundaryWarnings, ...nextAdapterWarnings].join("\n"),
       stdout: `${existingTarget ? "wrote" : "created"} ${path.relative(input.projectRoot, targetPath)}`,
       touchedNodes: [createdNode?.id ?? resolvedId]
     };
@@ -708,7 +864,7 @@ async function runTestWrite(input: Extract<CommandInput, { command: "test-write"
 
   const projectState = await buildProjectState(input.projectRoot, { validateTypes: false });
   const node = getNodeOrThrow(projectState, input.id);
-  const targetPath = await getSpecPath(input.projectRoot, node.id);
+  const targetPath = await getSpecPath(input.projectRoot, node.id, input.stdin);
   const previousSource = await fs.readFile(targetPath, "utf8").catch(() => null);
 
   await fs.writeFile(targetPath, input.stdin, "utf8");
